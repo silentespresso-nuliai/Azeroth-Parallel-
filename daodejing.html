@@ -871,6 +871,65 @@
       transition: none !important;
     }
   }
+
+  /* ==================== 13. 章节导航（跳转到第二章页面） ==================== */
+  /*
+    第二章现在是一个独立页面（daodejing-ch2.html），
+    所以这里不再需要锚点和平滑滚动相关的样式，
+    只保留“把灰色占位链接恢复成可用链接”的部分。
+  */
+
+  /*
+    原来的 .chapter-link 设了四层“锁”：
+      pointer-events: none  点不到
+      opacity: 0.6          发灰
+      cursor: default       鼠标不是小手
+      aria-disabled         告诉读屏软件“不可用”
+    现在给链接加上新的 class 名 is-active，再写一条更具体的规则覆盖前三层；
+    HTML 里则去掉 aria-disabled。这样不必改动第一章原有的规则。
+  */
+  .chapters .chapter-link.is-active {
+    pointer-events: auto;
+    cursor: pointer;
+    opacity: 1;
+    color: var(--ink);
+    border-bottom-color: rgba(74, 64, 46, 0.35);
+    transition: color 0.45s ease,
+                border-color 0.45s ease,
+                opacity 0.45s ease;
+  }
+
+  /* 鼠标悬停：文字转为印章红，下划线也稍微变红。 */
+  .chapters .chapter-link.is-active:hover {
+    color: var(--seal);
+    border-bottom-color: rgba(157, 48, 39, 0.4);
+  }
+
+  /*
+    小字“下一章”和箭头原本自己有颜色，
+    这里让它们在悬停时跟随父链接一起变成印章红，视觉上更统一。
+  */
+  .chapters .chapter-link.is-active:hover .chapter-link__label,
+  .chapters .chapter-link.is-active:hover .chapter-link__arrow {
+    color: inherit;
+  }
+
+  /* 悬停时箭头向右轻轻移动，暗示“可以继续往下看”。 */
+  .chapter-link__arrow {
+    transition: transform 0.45s ease, color 0.45s ease;
+  }
+  .chapters .chapter-link.is-active:hover .chapter-link__arrow {
+    transform: translateX(4px);
+  }
+
+  /*
+    :focus-visible 表示“用键盘（Tab 键）选中时”。
+    给出虚线外框，让不用鼠标的人也能看清当前选中了哪里。
+  */
+  .chapters .chapter-link.is-active:focus-visible {
+    outline: 1px dashed rgba(74, 64, 46, 0.45);
+    outline-offset: 6px;
+  }
 </style>
 </head>
 <body>
@@ -944,16 +1003,12 @@
     </section>
 
     <!--
-      章节导航。目前故意不激活，具体原因写在 CSS 的 .chapter-link 注释里。
-      nav 表示“导航区域”。
+      章节导航。这一项已经激活：
+        href="daodejing-ch2.html" 指向第二章的独立页面，点击后整页跳转过去。
+        is-active 是追加的新 class，用来把原来的“灰色不可点”恢复为正常链接。
     -->
     <nav class="chapters" aria-label="章节导航">
-      <!--
-        a 标签通常用来做链接，但这里没有写 href，
-        因此它没有跳转目标，只是一个“长得像链接”的占位元素。
-        tabindex="-1" 让它不会进入键盘 Tab 键的顺序。
-      -->
-      <a class="chapter-link" aria-disabled="true" tabindex="-1">
+      <a class="chapter-link is-active" href="daodejing-ch2.html">
         <span class="chapter-link__label">下一章</span>
         <span class="chapter-link__title">第二章</span>
         <span class="chapter-link__arrow" aria-hidden="true">→</span>
