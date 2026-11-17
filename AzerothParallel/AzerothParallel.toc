@@ -1,0 +1,13 @@
+## Interface: 16001
+#进游戏用 /dump select(4, GetBuildInfo()) 查你客户端的实际版本，替换掉。
+
+## Title: 艾泽拉斯平行宇宙 (Azeroth Parallel)
+## Notes: 包含弹幕、人生模拟等模块
+## Author: 怒里哀
+## Version: 1.0.0
+## SavedVariables: AP_DB
+#告诉游戏：“请帮我把 AP_DB 这个变量保存在硬盘里”。这个名字必须和 Core.lua 里的全局变量完全一致，否则声望、履历都不会存档。
+Core.lua
+Danmaku.lua
+Terms.lua
+Flavor.lua
