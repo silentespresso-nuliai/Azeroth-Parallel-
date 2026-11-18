@@ -16,6 +16,9 @@ local _, realClassToken = UnitClass("player")
 AP_DB.flavor.currentClass = realClassToken
 AP_DB.flavor.previewClass = AP_DB.flavor.previewClass or realClassToken
 
+-- 是否把称谓反映到游戏内的鼠标提示（只改 tooltip 第一行，安全开关，默认关）
+AP_DB.flavor.tooltipAlias = AP_DB.flavor.tooltipAlias and true or false
+
 if not AP_DB.flavor.currentFaction or AP_DB.flavor.currentFaction == "" then
     AP_DB.flavor.currentFaction = "Nightclaw"
 end
@@ -797,11 +800,26 @@ descText:SetJustifyH("LEFT")
 descText:SetSpacing(12)
 descText:SetFont(descText:GetFont(), 18, "")
 
+-- “反映到游戏内提示”的开关：勾选后，鼠标悬停技能时第一行显示本流派的称呼。
+-- 只包装 tooltip 的显示函数，不碰 GetSpellInfo，别人看不到，也不会影响其他插件。
+local tooltipToggle = CreateFrame("CheckButton", "AP_TooltipAliasToggle", RightPage, "ChatConfigCheckButtonTemplate")
+tooltipToggle:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 50, -32)
+local toggleText = _G[tooltipToggle:GetName() .. "Text"]
+toggleText:SetText("应用到游戏内提示（仅自己可见）")
+toggleText:SetFont(toggleText:GetFont(), 14, "OUTLINE")
+tooltipToggle:SetChecked(AP_DB.flavor.tooltipAlias and true or false)
+tooltipToggle:SetScript("OnClick", function(self)
+    local on = self:GetChecked() and true or false
+    AP_DB.flavor.tooltipAlias = on
+    if AP_TooltipAlias then AP_TooltipAlias.SetEnabled(on) end
+end)
+tooltipToggle:Hide() -- 只在“称谓典籍”模式下显示
+
 -- 称谓典籍的滚动区：和“流派介绍”共用右页，同一时间只显示其中一个。
--- 尺寸比介绍区略高一点，因为词条通常比一段介绍长。
+-- 顶部要给上面的开关留位置，所以从 -72 开始。
 local spellScrollFrame = CreateFrame("ScrollFrame", nil, RightPage, "UIPanelScrollFrameTemplate")
-spellScrollFrame:SetSize(310, 440)
-spellScrollFrame:SetPoint("TOPLEFT", 55, -30)
+spellScrollFrame:SetSize(310, 400)
+spellScrollFrame:SetPoint("TOPLEFT", 55, -72)
 local spellChild = CreateFrame("Frame", nil, spellScrollFrame)
 spellScrollFrame:SetScrollChild(spellChild)
 spellChild:SetWidth(280)
@@ -860,6 +878,9 @@ local function BuildTermList(classToken, factionID)
     return list
 end
 
+-- 导出给 Overrides.lua 用：它需要知道“当前流派有哪些称呼”，才能改鼠标提示。
+AP_FlavorManager.GetTermList = BuildTermList
+
 function UI.RefreshSpellBook(previewData)
     if not previewData then
         spellText:SetText("|cff888888暂无数据|r")
@@ -915,7 +936,6 @@ function UI.Refresh()
     -- 按钮文字跟着右页模式走：已经在典籍里，就提示可以返回
     spellBookBtn:SetText(showingSpellBook and "返回流派介绍" or "称谓典籍（技能/天赋）")
     UI.RefreshRibbons() -- 选中的职业书签向外拉出一截
-    local currentData = FlavorManager.GetCurrentFactionData()
     local previewData, previewClassData = FlavorManager.GetPreviewFactionData()
 
     -- 先把池子里的按钮全部隐藏，下面按需 Show
@@ -1002,10 +1022,8 @@ function UI.Refresh()
 
     if canConvert then
         convertBtn:Show()
-        repBar:SetStatusBarColor(0.5, 0.5, 0.5)
     else
         convertBtn:Hide()
-        repBar:SetStatusBarColor(0.3, 0.8, 0.3)
     end
 
     if not previewData then return end
@@ -1015,11 +1033,13 @@ function UI.Refresh()
         iconFrame:Hide()
         scrollFrame:Hide()
         spellScrollFrame:Show()
+        tooltipToggle:Show()
         UI.RefreshSpellBook(previewData)
     else
         iconFrame:Show()
         scrollFrame:Show()
         spellScrollFrame:Hide()
+        tooltipToggle:Hide()
     end
 
     badgeIcon:SetTexture(previewData.icon or FALLBACK_ICON)
@@ -1032,29 +1052,41 @@ function UI.Refresh()
         lastShownFactionID = previewData.id
     end
 
-    if AP_DB.flavor.previewClass ~= AP_DB.flavor.currentClass then
-        levelDisplay:SetText("|cff888888(图鉴预览模式)|r")
-        repBar:SetMinMaxValues(0, 1)
-        repBar:SetValue(0)
-        repText:SetText("无数据")
-        nextTierDisplay:SetText("该身份未在你名下激活")
+    -- 只有“正在看自己当前流派”才算当前身份。
+    -- 预览别的流派/职业时，声望条显示的是那个流派自己的存档数据，并用灰色区分。
+    local isOwn = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass
+        and previewData.id == AP_DB.flavor.currentFaction)
+
+    if isOwn then
+        repBar:SetStatusBarColor(0.3, 0.8, 0.3)
     else
-        local currentTier, nextTier, currentRep = FlavorManager.GetTierInfo(currentData)
-        if currentTier then
-            levelDisplay:SetText("|cffffd700当前身份：|r" .. currentTier.name)
-            if nextTier then
-                local prevExp = currentTier.exp or 0
-                local nextExp = nextTier.exp
-                repBar:SetMinMaxValues(prevExp, nextExp)
-                repBar:SetValue(currentRep)
-                repText:SetText(string.format("%d / %d", currentRep, nextExp))
-                nextTierDisplay:SetText("下一阶级：" .. nextTier.name .. " (还需 " .. (nextExp - currentRep) .. ")")
+        repBar:SetStatusBarColor(0.5, 0.5, 0.5)
+    end
+
+    local tier, nextTier, rep = FlavorManager.GetTierInfo(previewData)
+    if tier then
+        if isOwn then
+            levelDisplay:SetText("|cffffd700当前身份：|r" .. tier.name)
+        else
+            -- 明确写“未激活”，避免把这里的 0 声望误当成自己当前流派的经验
+            levelDisplay:SetText("|cff888888预览：" .. previewData.name .. " · " .. tier.name .. "（未激活）|r")
+        end
+        if nextTier then
+            local prevExp = tier.exp or 0
+            local nextExp = nextTier.exp
+            repBar:SetMinMaxValues(prevExp, nextExp)
+            repBar:SetValue(rep)
+            repText:SetText(string.format("%d / %d", rep, nextExp))
+            if isOwn then
+                nextTierDisplay:SetText("下一阶级：" .. nextTier.name .. " (还需 " .. (nextExp - rep) .. ")")
             else
-                repBar:SetMinMaxValues(0, 1)
-                repBar:SetValue(1)
-                repText:SetText("崇拜")
-                nextTierDisplay:SetText("已到达最高阶级。")
+                nextTierDisplay:SetText("|cff888888预览下一阶级：" .. nextTier.name .. " (还需 " .. (nextExp - rep) .. ")|r")
             end
+        else
+            repBar:SetMinMaxValues(0, 1)
+            repBar:SetValue(1)
+            repText:SetText("崇拜")
+            nextTierDisplay:SetText(isOwn and "已到达最高阶级。" or "|cff888888该流派已达最高阶级。|r")
         end
     end
 end
