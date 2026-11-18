@@ -530,7 +530,18 @@ StaticPopupDialogs["AP_FLAVOR_CONVERT_CONFIRM"] = {
 local UI = {}
 AP_FlavorUI = UI
 
-local classesList = { "DRUID", "PALADIN", "PRIEST", "WARLOCK", "MAGE", "WARRIOR", "ROGUE", "HUNTER", "SHAMAN" }
+-- 职业书签顺序：默认和游戏内一致（战士、圣骑士、猎人、潜行者、牧师、萨满、法师、术士、德鲁伊），
+-- 但玩家自己的职业永远排在第一枚，其余按上面的顺序往后串。
+local CLASS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
+local classesList = {}
+do
+    -- 玩家职业如果在图鉴里有数据，就第一个放；没有（例如数据还没做的职业）就退回德鲁伊打头
+    local firstClass = FlavorData[realClassToken] and realClassToken or "DRUID"
+    table.insert(classesList, firstClass)
+    for _, token in ipairs(CLASS_ORDER) do
+        if token ~= firstClass then table.insert(classesList, token) end
+    end
+end
 
 -- ==========================================
 -- 职业书签：彩旗状丝带，从书页左缘垂出
@@ -807,15 +818,56 @@ spellScrollFrame:Hide()
 -- 记住上一次显示的是哪个流派，切流派时把滚动条拉回顶部
 local lastSpellKey
 
+-- 把“职业通用词条”和“流派专属覆盖”合成一份完整列表：
+--   AP_Terms[职业]._common = 该职业所有技能/天赋的默认称呼
+--   AP_Terms[职业][流派id] = 只写这个流派叫法不同的条目，用来覆盖同名的通用词条
+-- 这样不用把同一个技能在 3~5 个流派里各抄一遍，改一个技能也只需要改通用那份。
+local function BuildTermList(classToken, factionID)
+    local classTerms = AP_Terms and AP_Terms[classToken]
+    if not classTerms then return nil end
+
+    local list, byOfficial = {}, {}
+    local function Add(term)
+        if not term or not term.official then return end
+        local existing = byOfficial[term.official]
+        if existing then
+            -- 同名技能：流派覆盖的那一份只替换称呼/备注
+            if term.alias then existing.alias = term.alias end
+            if term.note then existing.note = term.note end
+            if term.category then existing.category = term.category end
+        else
+            -- 拷贝一份再放进结果表，避免运行时修改到 AP_Terms 里的原始数据
+            local copy = {
+                category = term.category,
+                official = term.official,
+                alias = term.alias,
+                note = term.note,
+            }
+            table.insert(list, copy)
+            byOfficial[term.official] = copy
+        end
+    end
+
+    if classTerms._common then
+        for _, term in ipairs(classTerms._common) do Add(term) end
+    end
+    local factionTerms = classTerms[factionID]
+    if factionTerms then
+        for _, term in ipairs(factionTerms) do Add(term) end
+    end
+
+    if #list == 0 then return nil end
+    return list
+end
+
 function UI.RefreshSpellBook(previewData)
     if not previewData then
         spellText:SetText("|cff888888暂无数据|r")
         return
     end
 
-    -- 词条按 职业token → 流派id 两层查表，和 FlavorData 的流派 id 一一对应
-    local classTerms = AP_Terms and AP_Terms[AP_DB.flavor.previewClass]
-    local terms = classTerms and classTerms[previewData.id]
+    -- 词条 = 职业通用 + 流派覆盖，具体合并规则见上面的 BuildTermList
+    local terms = BuildTermList(AP_DB.flavor.previewClass, previewData.id)
     local key = tostring(AP_DB.flavor.previewClass) .. ":" .. tostring(previewData.id)
 
     if not terms or #terms == 0 then

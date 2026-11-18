@@ -103,15 +103,54 @@ eventFrame:SetScript("OnEvent", function(self, event, text, author, languageName
 end)
 
 -- ==========================================
--- UI 排版 (挂载到 p2 的左右页)
+-- UI：设定页入口 + 弹幕设置子页
 -- ==========================================
-local p2 = AP_Panels[2]
-local LeftPage = p2.LeftPage
-local RightPage = p2.RightPage
+-- 设定页对应 AP_Panels[1]。第 2 页“职业流派”已经被 Flavor.lua 占用，
+-- 所以弹幕设置只能放在这里，否则两套界面会叠在一起。
+local settingPanel = AP_Panels[1]
 
--- 左页
-local leftTitle = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-leftTitle:SetPoint("TOPLEFT", 20, -20) -- 这里改成 50， -20
+-- 设置子页：透明地盖在设定页上，默认隐藏。
+-- 不另画书页背景，露出来的就是 Core.lua 造好的左右两页。
+local dmPage = CreateFrame("Frame", "AP_DanmakuPage", settingPanel)
+dmPage:SetAllPoints(settingPanel)
+-- 抬高一层，确保设置控件盖在左右书页背景之上
+dmPage:SetFrameLevel(settingPanel:GetFrameLevel() + 2)
+dmPage:Hide()
+
+-- 入口控件先声明成 local，后面的 ShowDanmakuPage 才能捕获到它们
+local entryBtn, entryHint
+
+local function ShowDanmakuPage(show)
+    if show then
+        dmPage:Show()
+        entryBtn:Hide()
+        entryHint:Hide()
+    else
+        dmPage:Hide()
+        entryBtn:Show()
+        entryHint:Show()
+    end
+end
+
+-- 设定页左页：入口按钮
+entryBtn = CreateFrame("Button", nil, settingPanel.LeftPage, "UIPanelButtonTemplate")
+entryBtn:SetSize(200, 36)
+entryBtn:SetPoint("CENTER", settingPanel.LeftPage, "CENTER", 0, 40)
+entryBtn:SetText("聊天弹幕")
+entryBtn:SetScript("OnClick", function() ShowDanmakuPage(true) end)
+
+-- 设定页右页：入口说明
+entryHint = settingPanel.RightPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+entryHint:SetPoint("TOP", settingPanel.RightPage, "TOP", 0, -120)
+entryHint:SetWidth(300)
+entryHint:SetJustifyH("CENTER")
+entryHint:SetFont(entryHint:GetFont(), 18, "")
+entryHint:SetSpacing(10)
+entryHint:SetText("|cffd4af37聊天弹幕|r\n\n把小队、团队、公会、密语等聊天消息\n变成从屏幕边缘飘过的弹幕。\n\n点击左侧「聊天弹幕」开始设置。")
+
+-- 弹幕设置子页 · 左栏：频道过滤
+local leftTitle = dmPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+leftTitle:SetPoint("TOPLEFT", dmPage, "TOPLEFT", 50, -40)
 leftTitle:SetText("弹幕频道过滤：")
 leftTitle:SetFont(leftTitle:GetFont(), 22, "OUTLINE")
 
@@ -123,22 +162,22 @@ local channelsList = {
 }
 
 for i, chan in ipairs(channelsList) do
-    local cb = CreateFrame("CheckButton", "AP_CB" .. i, LeftPage, "ChatConfigCheckButtonTemplate")
+    local cb = CreateFrame("CheckButton", "AP_CB" .. i, dmPage, "ChatConfigCheckButtonTemplate")
     -- 从 leftTitle 往下 25 像素开始，每行间隔 40
     cb:SetPoint("TOPLEFT", leftTitle, "BOTTOMLEFT", 0, -25 - ((i - 1) * 40))
     _G[cb:GetName() .. "Text"]:SetText(chan.name)
-    _G[cb:GetName() .. "Text"]:SetFont(_G[cb:GetName() .. "Text"]:GetFont(), 20, "OUTLINE") -- 字号顶到 20
+    _G[cb:GetName() .. "Text"]:SetFont(_G[cb:GetName() .. "Text"]:GetFont(), 20, "OUTLINE")
     cb:SetChecked(dmDB.channels[chan.key])
     cb:SetScript("OnClick", function(self) dmDB.channels[chan.key] = self:GetChecked() end)
 end
 
--- 右页
-local rightTitle = RightPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-rightTitle:SetPoint("TOPLEFT", 55, -30) -- X 从 35 改为 55
+-- 弹幕设置子页 · 右栏：参数
+local rightTitle = dmPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+rightTitle:SetPoint("TOPLEFT", dmPage, "TOPLEFT", 500, -40)
 rightTitle:SetText("弹幕参数设置：")
 rightTitle:SetFont(rightTitle:GetFont(), 22, "OUTLINE")
 
-local sliderSpeed = CreateFrame("Slider", "AP_SpeedSlider", RightPage, "OptionsSliderTemplate")
+local sliderSpeed = CreateFrame("Slider", "AP_SpeedSlider", dmPage, "OptionsSliderTemplate")
 sliderSpeed:SetPoint("TOPLEFT", rightTitle, "BOTTOMLEFT", 0, -60)
 sliderSpeed:SetWidth(300)
 sliderSpeed:SetMinMaxValues(5, 30)
@@ -153,7 +192,7 @@ sliderSpeed:SetScript("OnValueChanged", function(self, value)
     if type(value) == "number" then dmDB.time = value end
 end)
 
-local sliderSize = CreateFrame("Slider", "AP_SizeSlider", RightPage, "OptionsSliderTemplate")
+local sliderSize = CreateFrame("Slider", "AP_SizeSlider", dmPage, "OptionsSliderTemplate")
 sliderSize:SetPoint("TOPLEFT", sliderSpeed, "BOTTOMLEFT", 0, -80)
 sliderSize:SetWidth(300)
 sliderSize:SetMinMaxValues(10, 40)
@@ -168,7 +207,14 @@ sliderSize:SetScript("OnValueChanged", function(self, value)
     if type(value) == "number" then dmDB.fontSize = value end
 end)
 
-local tip = RightPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+local tip = dmPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 tip:SetPoint("TOPLEFT", sliderSize, "BOTTOMLEFT", 0, -50)
 tip:SetFont(tip:GetFont(), 16, "OUTLINE")
 tip:SetText("|cffaaaaaa提示：调节滑块立即生效。|r")
+
+-- 返回设定页
+local backBtn = CreateFrame("Button", nil, dmPage, "UIPanelButtonTemplate")
+backBtn:SetSize(120, 28)
+backBtn:SetPoint("BOTTOMLEFT", dmPage, "BOTTOMLEFT", 570, 85)
+backBtn:SetText("返回设定")
+backBtn:SetScript("OnClick", function() ShowDanmakuPage(false) end)
