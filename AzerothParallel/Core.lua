@@ -91,6 +91,19 @@ SlashCmdList["AZEROTHPARALLEL"] = function(msg)
         end
         return
     end
+    -- /AP net on|off：开关“和其他装了本插件的人互相显示 RP 名”的网络功能。
+    -- 不带参数就是切换。默认开启，只在小队/团队/公会里广播。
+    if cmd == "net" then
+        if AP_Network and AP_Network.SetEnabled then
+            local value
+            if arg == "on" then value = true
+            elseif arg == "off" then value = false end
+            AP_Network.SetEnabled(value)
+        else
+            print("|cffffd700[AP]|r 网络模块未加载。")
+        end
+        return
+    end
     -- 如果没加参数，或者输入其他内容，就开关面板
     if AP_MainFrame:IsShown() then AP_MainFrame:Hide() else AP_MainFrame:Show() end
 end

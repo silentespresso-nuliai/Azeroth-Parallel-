@@ -12,3 +12,6 @@ Danmaku.lua
 Terms.lua
 Flavor.lua
 Overrides.lua
+Network.lua
+Peers.lua
+Nameplate.lua

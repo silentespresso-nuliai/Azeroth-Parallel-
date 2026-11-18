@@ -1,20 +1,31 @@
 -- ==========================================
 -- Overrides.lua: 把称谓“反映”到游戏内鼠标提示（第一层）
 -- ==========================================
--- 安全边界（这是本文件存在的全部理由）：
---   1. 绝不替换 GetSpellInfo / GetSpellBookItemName 这类全局 API；
---   2. 只包装 GameTooltip 的几个显示方法，在原函数执行完之后改第一行文字；
---   3. 只影响自己的鼠标提示，别人看不到，也不会改变宏命令和服务器数据；
---   4. 只有在“称谓典籍”里勾选开关时才生效，默认关闭。
+-- 安全边界：
+--   1. 不替换 GetSpellInfo 这类全局 API；
+--   2. 只包装 GameTooltip 的几个显示方法，在原函数执行完之后改第一行；
+--   3. 只影响自己的鼠标提示，别人看不到；
+--   4. 只在勾选开关时生效，默认关闭。
 --
--- 开关状态：AP_DB.flavor.tooltipAlias，由 Flavor.lua 右页的复选框写入。
+-- 新客户端（11.x/12.x）会把 tooltip 文本标记成 secret string，
+-- 插件不能读取/比较/替换它。所以这里优先用“法术 ID → 官方名”查表，
+-- 文本路径全部套 pcall；读不到就安静跳过，绝不把错误抛给游戏。
 
 local enabled = false
 local cachedKey
 local cachedMap
 
+local hasSecretAPI = type(issecretvalue) == "function"
+
+-- 判断一个值是不是客户端不让我们读的 secret string
+local function IsSecret(value)
+    if not hasSecretAPI then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret
+end
+
 -- 取当前职业/流派的“官方名 → 专属称呼”映射。
--- 切流派后 key 变化，下次悬停时会自动重建，不会残留上一个流派的称呼。
+-- 切流派后 key 变化，下次悬停时会自动重建。
 local function BuildAliasMap()
     local classToken = AP_DB.flavor.currentClass
     local factionID = AP_DB.flavor.currentFaction
@@ -46,42 +57,130 @@ local function GetAliasColor()
     return 1, 0.82, 0.25
 end
 
--- 去掉文本里可能夹带的颜色代码，避免查表时对不上
 local function StripColorCodes(text)
     return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
-local function ApplyAliasToTooltip()
+-- 按官方名查别名；name 可能是 secret string 或格式异常，全部兜住
+local function LookupAliasByName(name)
+    if not name or IsSecret(name) then return nil end
+    local map = BuildAliasMap()
+    if not map then return nil end
+
+    local ok, alias = pcall(function()
+        local found = map[name]
+        if not found then
+            local base = name:match("^([^（(]+)")
+            if base then found = map[base] end
+        end
+        return found
+    end)
+    if ok then return alias end
+    return nil
+end
+
+-- 通过法术 ID 拿官方名：新 API 优先，旧 API 兜底
+local function GetSpellNameByID(spellID)
+    if not spellID then return nil end
+
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
+        if ok and type(info) == "table" and info.name then
+            return info.name
+        end
+    end
+    if GetSpellInfo then
+        local ok, name = pcall(GetSpellInfo, spellID)
+        if ok then return name end
+    end
+    return nil
+end
+
+-- 只改第一行的文字和颜色，不碰 tooltip 的其他行
+local function SetTooltipLine(alias)
+    local line = _G["GameTooltipTextLeft1"]
+    if not line then return false end
+
+    local ok = pcall(line.SetText, line, alias)
+    if not ok then return false end
+    pcall(line.SetTextColor, line, GetAliasColor())
+    return true
+end
+
+-- 主路径：法术 ID → 官方名 → 别名
+local function ApplyAliasByID(spellID)
+    if not enabled or not spellID then return false end
+    local name = GetSpellNameByID(spellID)
+    if not name then return false end
+    local alias = LookupAliasByName(name)
+    if not alias then return false end
+    return SetTooltipLine(alias)
+end
+
+-- 兜底路径：直接读 tooltip 第一行。
+-- 新客户端这里多半会读到 secret string，检测到就直接跳过。
+local function ApplyAliasByText()
     if not enabled then return end
     local line = _G["GameTooltipTextLeft1"]
     if not line then return end
 
-    local text = line:GetText()
-    if not text or text == "" then return end
-    text = StripColorCodes(text)
+    local ok, text = pcall(line.GetText, line)
+    if not ok or type(text) ~= "string" or IsSecret(text) then return end
 
-    local map = BuildAliasMap()
-    if not map then return end
+    pcall(function()
+        text = StripColorCodes(text)
+        local alias = LookupAliasByName(text)
+        if alias then SetTooltipLine(alias) end
+    end)
+end
 
-    local alias = map[text]
-    -- 有些提示第一行是“技能名(等级 X)”，去掉括号再查一次
-    if not alias then
-        local base = text:match("^([^（(]+)")
-        if base then alias = map[base] end
+-- 从 tooltip 方法的参数里尽量提取法术 ID
+local function ExtractSpellID(methodName, a1, a2)
+    if methodName == "SetSpellByID" or methodName == "SetSpell" then
+        return tonumber(a1)
+
+    elseif methodName == "SetHyperlink" then
+        if type(a1) == "string" then
+            return tonumber(a1:match("spell:(%d+)"))
+        end
+
+    elseif methodName == "SetAction" then
+        if GetActionInfo then
+            local ok, actionType, id = pcall(GetActionInfo, a1)
+            if ok and actionType == "spell" then return id end
+        end
+
+    elseif methodName == "SetSpellbookItem" then
+        if C_SpellBook and C_SpellBook.GetSpellBookItemInfo then
+            local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, a1, a2)
+            if ok and type(info) == "table" then
+                return info.spellID or info.actionID
+            end
+        end
+        if GetSpellBookItemInfo then
+            local ok, itemType, spellID = pcall(GetSpellBookItemInfo, a1, a2)
+            if ok and itemType == "SPELL" then return spellID end
+        end
     end
-    if not alias then return end
 
-    line:SetText(alias)
-    line:SetTextColor(GetAliasColor())
+    return nil
 end
 
 -- 只包装 GameTooltip 实例的方法；不碰任何全局取名字的函数。
 local function HookTooltipMethod(methodName)
     local orig = GameTooltip[methodName]
     if type(orig) ~= "function" then return end
+
     GameTooltip[methodName] = function(self, ...)
         local result = orig(self, ...)
-        ApplyAliasToTooltip()
+
+        if enabled then
+            local ok, spellID = pcall(ExtractSpellID, methodName, ...)
+            if not (ok and ApplyAliasByID(spellID)) then
+                ApplyAliasByText()
+            end
+        end
+
         return result
     end
 end
@@ -101,7 +200,7 @@ local function SetEnabled(value)
     cachedKey = nil -- 下次悬停时按当前流派重建映射
     -- 开关刚打开时，如果提示正开着，立刻把当前这一条也换掉
     if enabled and GameTooltip:IsShown() then
-        ApplyAliasToTooltip()
+        ApplyAliasByText()
     end
 end
 

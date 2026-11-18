@@ -598,18 +598,19 @@ for i, classID in ipairs(classesList) do
     hl:SetVertexColor(1, 1, 1, 0.3)
     hl:SetBlendMode("ADD")
 
-    -- 文字：浅色丝带（牧师白、潜行者黄等）用深色字，深色丝带用浅色描边字
+    -- 文字：玩家自己的职业用浅色描边字高亮，其余职业统一深色字。
+    -- 之前按丝带亮度判断，导致萨满/术士这类深色丝带也变成白字，
+    -- 看起来像“只有自己的职业特殊”，所以改成按职业 token 判断。
     local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     text:SetPoint("CENTER", 2, 0)
     text:SetText(data.className)
     local fontPath = text:GetFont()
-    local luminance = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
-    if luminance > 0.62 then
-        text:SetFont(fontPath, 15, "")
-        text:SetTextColor(0.16, 0.09, 0.03)
-    else
+    if classID == realClassToken then
         text:SetFont(fontPath, 15, "OUTLINE")
         text:SetTextColor(1, 0.96, 0.84)
+    else
+        text:SetFont(fontPath, 15, "")
+        text:SetTextColor(0.16, 0.09, 0.03)
     end
 
     btn:SetScript("OnEnter", function(self)
@@ -663,33 +664,74 @@ nameLabel:SetPoint("CENTER", 0, 0)
 nameLabel:SetFont(nameLabel:GetFont(), 22, "OUTLINE")
 nameLabel:SetText("|cffd4af37" .. AP_DB.flavor.customName .. "|r")
 
-local nameInput = CreateFrame("EditBox", nil, namePlate)
+local nameInput = CreateFrame("EditBox", nil, namePlate, "BackdropTemplate")
 nameInput:SetSize(200, 30)
 nameInput:SetPoint("CENTER", 0, 0)
 nameInput:SetFontObject("GameFontNormalLarge")
+nameInput:SetTextColor(1, 0.9, 0.65)
+nameInput:SetTextInsets(6, 6, 0, 0)
 nameInput:SetAutoFocus(false)
 nameInput:SetMaxLetters(12) -- 限制名字长度，避免超出名牌
+nameInput:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    edgeSize = 10,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+})
+nameInput:SetBackdropColor(0, 0, 0, 0.95)
+nameInput:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
 nameInput:Hide()
 nameInput:SetScript("OnEnterPressed", function(self)
     if self:GetText() ~= "" then AP_DB.flavor.customName = self:GetText() end
     nameLabel:SetText("|cffd4af37" .. AP_DB.flavor.customName .. "|r")
     self:Hide(); nameLabel:Show(); self:ClearFocus()
+    -- 名字改了就立刻广播给装了插件的人（没装/不在同队的人收不到）
+    if AP_Network and AP_Network.Broadcast then AP_Network.Broadcast() end
 end)
 nameInput:SetScript("OnEscapePressed", function(self)
     self:Hide(); nameLabel:Show(); self:ClearFocus()
 end)
 
-local pencilBtn = CreateFrame("Button", nil, namePlate)
-pencilBtn:SetSize(24, 24)
-pencilBtn:SetPoint("RIGHT", -15, 0)
+-- 进入改名状态的统一入口：点羽毛笔按钮、点名字本身都可以
+local function StartEditName()
+    nameLabel:Hide()
+    nameInput:Show()
+    nameInput:SetText(AP_DB.flavor.customName)
+    nameInput:SetFocus()
+    nameInput:HighlightText()
+end
+
+-- 名牌本身也能点，不用先找到右边那支羽毛笔
+namePlate:EnableMouse(true)
+namePlate:SetScript("OnMouseUp", function(self, button)
+    if button == "LeftButton" then StartEditName() end
+end)
+
+-- 羽毛笔改成带金边底框的按钮，比原来那枚小图标显眼得多
+local pencilBtn = CreateFrame("Button", nil, namePlate, "BackdropTemplate")
+pencilBtn:SetSize(30, 30)
+pencilBtn:SetPoint("RIGHT", -10, 0)
+pencilBtn:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    edgeSize = 10,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+})
+pencilBtn:SetBackdropColor(0.12, 0.09, 0.05, 0.95)
+pencilBtn:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
 local pencilIcon = pencilBtn:CreateTexture(nil, "ARTWORK")
-pencilIcon:SetAllPoints()
+pencilIcon:SetPoint("TOPLEFT", 6, -6)
+pencilIcon:SetPoint("BOTTOMRIGHT", -6, 6)
 pencilIcon:SetTexture("Interface\\Icons\\INV_Misc_Quill_01")
 pencilBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-pencilBtn:SetScript("OnClick", function()
-    nameLabel:Hide(); nameInput:Show(); nameInput:SetText(AP_DB.flavor.customName)
-    nameInput:SetFocus(); nameInput:HighlightText()
+pencilBtn:SetScript("OnClick", StartEditName)
+pencilBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("修改名字", 1, 0.82, 0)
+    GameTooltip:AddLine("点击后输入你的 RP 名字。", 1, 1, 1)
+    GameTooltip:Show()
 end)
+pencilBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 local factionTabContainer = CreateFrame("Frame", nil, leftContent)
 factionTabContainer:SetSize(CONTENT_WIDTH, 35)
@@ -1028,12 +1070,29 @@ function UI.Refresh()
 
     if not previewData then return end
 
+    -- 只有“当前职业 + 当前激活流派”才显示 tooltip 开关。
+    -- 预览别的职业/流派时开关不生效（它永远作用于 AP_DB.flavor.currentFaction），
+    -- 显示出来只会误导，所以直接隐藏。
+    local canToggleAlias = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass
+        and previewData.id == AP_DB.flavor.currentFaction)
+
     -- 右页两种模式二选一：流派介绍（默认） / 称谓典籍
     if showingSpellBook then
         iconFrame:Hide()
         scrollFrame:Hide()
         spellScrollFrame:Show()
-        tooltipToggle:Show()
+
+        if canToggleAlias then
+            tooltipToggle:Show()
+            spellScrollFrame:ClearAllPoints()
+            spellScrollFrame:SetPoint("TOPLEFT", 55, -72)
+        else
+            tooltipToggle:Hide()
+            -- 开关藏起来后把典籍上移，避免顶部空一块
+            spellScrollFrame:ClearAllPoints()
+            spellScrollFrame:SetPoint("TOPLEFT", 55, -30)
+        end
+
         UI.RefreshSpellBook(previewData)
     else
         iconFrame:Show()
