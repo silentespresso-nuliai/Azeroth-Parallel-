@@ -10,8 +10,10 @@
 Core.lua
 Danmaku.lua
 Terms.lua
+Data.lua
 Flavor.lua
 Overrides.lua
 Network.lua
 Peers.lua
 Nameplate.lua
+Spotlight.lua

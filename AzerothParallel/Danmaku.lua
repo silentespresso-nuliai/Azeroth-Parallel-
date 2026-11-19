@@ -24,7 +24,10 @@ dmDB.channels = dmDB.channels or {
 local MAX_DANMAKU = 20
 local danmakuContainer = CreateFrame("Frame", "AP_DanmakuContainer", UIParent)
 danmakuContainer:SetAllPoints(UIParent)
-danmakuContainer:SetFrameStrata("BACKGROUND")
+-- 弹幕放在 MEDIUM：既不会被动作条、团队框架等普通 UI 盖住，
+-- 又不会像 HIGH/TOOLTIP 那样压住鼠标提示和弹窗。
+-- 容器默认不接收鼠标，不会挡住任何点击。
+danmakuContainer:SetFrameStrata("MEDIUM")
 local activeDanmakuCount = 0
 
 local function CreateDanmaku(text, author, chatType, languageName)

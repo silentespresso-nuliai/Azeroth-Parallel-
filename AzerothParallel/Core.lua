@@ -104,6 +104,16 @@ SlashCmdList["AZEROTHPARALLEL"] = function(msg)
         end
         return
     end
+    -- /AP spotlog：开关“高光特写”的调试日志。
+    -- 开启后每次成功施法都会在聊天框打印技能 ID 和名字，用来校对高光技能表。
+    if cmd == "spotlog" then
+        if AP_Spotlight and AP_Spotlight.ToggleDebug then
+            AP_Spotlight.ToggleDebug()
+        else
+            print("|cffffd700[AP]|r 高光模块未加载。")
+        end
+        return
+    end
     -- 如果没加参数，或者输入其他内容，就开关面板
     if AP_MainFrame:IsShown() then AP_MainFrame:Hide() else AP_MainFrame:Show() end
 end

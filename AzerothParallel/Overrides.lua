@@ -167,6 +167,13 @@ local function ExtractSpellID(methodName, a1, a2)
 end
 
 -- 只包装 GameTooltip 实例的方法；不碰任何全局取名字的函数。
+--
+-- 节流：同一个技能在极短时间内会被多个 tooltip 方法重复处理
+-- （例如 SetSpellByID 之后紧跟着 SetHyperlink），没必要每次都查表、改字。
+-- 这里按“技能 ID + 50ms”去重：同一技能只处理第一次，换技能立即处理，
+-- 不会像全局时间节流那样漏掉玩家快速划过的新技能。
+local lastAttemptID, lastAttemptAt = nil, 0
+
 local function HookTooltipMethod(methodName)
     local orig = GameTooltip[methodName]
     if type(orig) ~= "function" then return end
@@ -176,6 +183,13 @@ local function HookTooltipMethod(methodName)
 
         if enabled then
             local ok, spellID = pcall(ExtractSpellID, methodName, ...)
+            if ok and spellID then
+                local now = (type(GetTime) == "function" and GetTime()) or 0
+                if lastAttemptID == spellID and now - lastAttemptAt < 0.05 then
+                    return result
+                end
+                lastAttemptID, lastAttemptAt = spellID, now
+            end
             if not (ok and ApplyAliasByID(spellID)) then
                 ApplyAliasByText()
             end
