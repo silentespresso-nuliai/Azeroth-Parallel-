@@ -130,18 +130,100 @@ dmPage:SetAllPoints(settingPanel)
 dmPage:SetFrameLevel(settingPanel:GetFrameLevel() + 2)
 dmPage:Hide()
 
+-- ==========================================
+-- 设定页右页分页器：聊天弹幕 / 表情与动作
+-- 右页只有一个页面大小，两套说明和编辑框同时铺开会叠在一起，
+-- 所以做成两个切换按钮，同一时间只显示其中一页。
+-- ==========================================
+local rightRoot = settingPanel.RightPage
+
+local tabBar = CreateFrame("Frame", nil, rightRoot)
+tabBar:SetSize(340, 28)
+tabBar:SetPoint("TOP", rightRoot, "TOP", 0, -12)
+
+local RIGHT_CONTENT_TOP = -48 -- 分页按钮占掉的高度，内容从这条线往下排
+local rightPages = {}
+local rightTabButtons = {}
+local rightTabOrder = {}
+local activeRightTab
+
+local function SelectRightTab(key)
+    activeRightTab = key
+    for k, page in pairs(rightPages) do
+        if k == key then page:Show() else page:Hide() end
+    end
+    for k, btn in pairs(rightTabButtons) do
+        if k == key then
+            btn:SetButtonState("PUSHED", true)
+        else
+            btn:SetButtonState("NORMAL", false)
+        end
+    end
+end
+
+local function AddRightTab(key, label)
+    local btn = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
+    btn:SetSize(166, 26)
+    if #rightTabOrder == 0 then
+        btn:SetPoint("LEFT", tabBar, "LEFT", 0, 0)
+    else
+        btn:SetPoint("LEFT", rightTabOrder[#rightTabOrder], "RIGHT", 8, 0)
+    end
+    btn:SetText(label)
+    btn:SetScript("OnClick", function() SelectRightTab(key) end)
+    rightTabOrder[#rightTabOrder + 1] = btn
+    rightTabButtons[key] = btn
+
+    -- 每个分页都是一块透明的容器，大小刚好铺满分页按钮下方
+    local page = CreateFrame("Frame", nil, rightRoot)
+    page:SetPoint("TOPLEFT", rightRoot, "TOPLEFT", 0, RIGHT_CONTENT_TOP)
+    page:SetPoint("BOTTOMRIGHT", rightRoot, "BOTTOMRIGHT", 0, 0)
+    page:Hide()
+    rightPages[key] = page
+    return page
+end
+
+local danmakuRightPage = AddRightTab("danmaku", "聊天弹幕")
+local emoteRightPage = AddRightTab("emote", "表情与动作")
+
+-- 给 Emotes.lua 用：它把说明和自定义编辑框挂到这个分页里，
+-- 并且通过 AP_SelectSettingsTab 切换分页。
+AP_EmoteSettingsPage = emoteRightPage
+AP_SelectSettingsTab = SelectRightTab
+
+-- 打开弹幕设置子页时，整个右页分页区（按钮 + 内容）都要藏起来，
+-- 否则会透到弹幕设置控件后面。返回后再按上次选中的分页恢复。
+local function SetRightPaneVisible(visible)
+    if visible then
+        tabBar:Show()
+        SelectRightTab(activeRightTab or "emote")
+    else
+        tabBar:Hide()
+        for _, page in pairs(rightPages) do page:Hide() end
+    end
+end
+
+-- 设定页上各个入口按钮的登记表：打开子页时统一隐藏，返回时恢复。
+-- Emotes.lua 加载在后，会通过这个函数把自己的入口按钮也登记进来。
+AP_SettingsEntryFrames = AP_SettingsEntryFrames or {}
+function AP_RegisterSettingsEntry(frame)
+    table.insert(AP_SettingsEntryFrames, frame)
+    if dmPage:IsShown() then frame:Hide() end
+end
+
 -- 入口控件先声明成 local，后面的 ShowDanmakuPage 才能捕获到它们
 local entryBtn, entryHint
 
 local function ShowDanmakuPage(show)
     if show then
         dmPage:Show()
-        entryBtn:Hide()
-        entryHint:Hide()
+        SetRightPaneVisible(false)
+        -- 两个模块的入口按钮一起藏，否则会从子页的空白处透出来
+        for _, frame in ipairs(AP_SettingsEntryFrames) do frame:Hide() end
     else
         dmPage:Hide()
-        entryBtn:Show()
-        entryHint:Show()
+        for _, frame in ipairs(AP_SettingsEntryFrames) do frame:Show() end
+        SetRightPaneVisible(true)
     end
 end
 
@@ -151,15 +233,20 @@ entryBtn:SetSize(200, 36)
 entryBtn:SetPoint("CENTER", settingPanel.LeftPage, "CENTER", 0, 40)
 entryBtn:SetText("聊天弹幕")
 entryBtn:SetScript("OnClick", function() ShowDanmakuPage(true) end)
+AP_RegisterSettingsEntry(entryBtn)
 
--- 设定页右页：入口说明
-entryHint = settingPanel.RightPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-entryHint:SetPoint("TOP", settingPanel.RightPage, "TOP", 0, -120)
-entryHint:SetWidth(300)
+-- 设定页右页「聊天弹幕」分页：入口说明
+entryHint = danmakuRightPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+entryHint:SetPoint("TOP", danmakuRightPage, "TOP", 0, -30)
+entryHint:SetWidth(340)
 entryHint:SetJustifyH("CENTER")
 entryHint:SetFont(entryHint:GetFont(), 18, "")
 entryHint:SetSpacing(10)
 entryHint:SetText("|cffd4af37聊天弹幕|r\n\n把小队、团队、公会、密语等聊天消息\n变成从屏幕边缘飘过的弹幕。\n\n点击左侧「聊天弹幕」开始设置。")
+
+-- 默认停在「表情与动作」分页：那里有可以直接编辑的自定义按钮。
+-- 想看弹幕说明就点上方分页，或点左侧「聊天弹幕」进入详细设置。
+SelectRightTab("emote")
 
 -- 弹幕设置子页 · 左栏：频道过滤
 local leftTitle = dmPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")

@@ -9,6 +9,7 @@
 #告诉游戏：“请帮我把 AP_DB 这个变量保存在硬盘里”。这个名字必须和 Core.lua 里的全局变量完全一致，否则声望、履历都不会存档。
 Core.lua
 Danmaku.lua
+Emotes.lua
 Terms.lua
 Data.lua
 Flavor.lua
