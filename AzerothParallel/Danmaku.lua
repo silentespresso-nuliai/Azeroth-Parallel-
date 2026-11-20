@@ -100,7 +100,17 @@ local events = {
     ["CHAT_MSG_GUILD"] = "GUILD"
 }
 for eventName in pairs(events) do eventFrame:RegisterEvent(eventName) end
+-- 新客户端会把聊天内容标记成 secret string，插件不能读取、比较或拼接。
+-- 这类消息只能安静跳过，否则每次队伍聊天、团队聊天都会刷屏报错。
+local hasSecretAPI = type(issecretvalue) == "function"
+local function IsSecret(value)
+    if not hasSecretAPI then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret
+end
+
 eventFrame:SetScript("OnEvent", function(self, event, text, author, languageName)
+    if IsSecret(text) or IsSecret(author) or IsSecret(languageName) then return end
     if not text or text == "" then return end
     if dmDB.channels[events[event]] then CreateDanmaku(text, author, events[event], languageName) end
 end)

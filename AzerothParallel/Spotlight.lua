@@ -19,6 +19,10 @@ local function EnsureDB()
     local db = AP_DB.spotlight
     if db.enabled == nil then db.enabled = true end
     if db.sound == nil then db.sound = true end
+    -- 音效选择：0 = 随机，1~3 = 固定 Media/sounds 里的第几个
+    if type(db.soundIndex) ~= "number" or db.soundIndex < 0 or db.soundIndex > 3 then
+        db.soundIndex = 0
+    end
     if db.broadcast == nil then db.broadcast = true end
     if db.position ~= "TOPLEFT" and db.position ~= "TOPRIGHT" then
         db.position = "TOPRIGHT"
@@ -26,10 +30,13 @@ local function EnsureDB()
     -- 自定义大招：只存一个字符串，可以是技能名，也可以是技能 ID（纯数字）。
     -- 留空 = 使用下面写好的默认职业表。
     if type(db.customSpell) ~= "string" then db.customSpell = "" end
-    -- 自定义大招的高光冷却（秒）：默认 3 分钟，限制在 1~10 分钟，防止存档里出现奇怪数字
-    if type(db.cooldown) ~= "number" or db.cooldown < 60 or db.cooldown > 600 then
-        db.cooldown = 180
+    -- 触发时的喊话/动作：文本可以留空；模式 OFF = 不喊
+    if type(db.chatText) ~= "string" then db.chatText = "" end
+    if db.chatMode ~= "YELL" and db.chatMode ~= "EMOTE" and db.chatMode ~= "OFF" then
+        db.chatMode = "OFF"
     end
+    -- 是否只在组队/团队中触发（默认关闭，单人做任务也能看高光）
+    if db.groupOnly == nil then db.groupOnly = false end
 end
 EnsureDB()
 
@@ -168,6 +175,28 @@ local function GetCustomSpell()
     return value
 end
 
+-- 是否在队伍/团队中：用于“只在组队时触发”的开关
+local function IsInGroupNow()
+    local ok, value
+    if type(IsInRaid) == "function" then
+        ok, value = pcall(IsInRaid)
+        if ok and value then return true end
+    end
+    if type(IsInGroup) == "function" then
+        ok, value = pcall(IsInGroup)
+        if ok and value then return true end
+    end
+    if type(GetNumRaidMembers) == "function" then
+        ok, value = pcall(GetNumRaidMembers)
+        if ok and type(value) == "number" and value > 0 then return true end
+    end
+    if type(GetNumPartyMembers) == "function" then
+        ok, value = pcall(GetNumPartyMembers)
+        if ok and type(value) == "number" and value > 0 then return true end
+    end
+    return false
+end
+
 local function CurrentClass()
     local ok, _, token = pcall(UnitClass, "player")
     if ok and token then return token end
@@ -270,9 +299,34 @@ local function SoundKitID(key)
     return nil
 end
 
+-- 自定义高光音效：Media/sounds 里的文件随机挑一个播放。
+-- 如果客户端拒绝插件目录里的音频，调用本身不会报错，但会没有声音。
+local CUSTOM_SOUNDS = {
+    "Interface\\AddOns\\AzerothParallel\\Media\\sounds\\LOLAzir1.ogg",
+    "Interface\\AddOns\\AzerothParallel\\Media\\sounds\\LOLAzir2.ogg",
+    "Interface\\AddOns\\AzerothParallel\\Media\\sounds\\LOLAzir3.ogg",
+}
+
 local function PlaySpotSound(kind)
     EnsureDB()
     if not AP_DB.spotlight.sound then return end
+
+    -- 优先随机播放自定义音效；老客户端没有 PlaySoundFile 时才退回内置音
+    if type(PlaySoundFile) == "function" and #CUSTOM_SOUNDS > 0 then
+        local index = AP_DB.spotlight.soundIndex or 0
+        local path
+        if index >= 1 and index <= #CUSTOM_SOUNDS then
+            path = CUSTOM_SOUNDS[index] -- 玩家自己选的固定音效
+        else
+            path = CUSTOM_SOUNDS[math.random(#CUSTOM_SOUNDS)] -- 随机
+        end
+        -- 新版带声道参数，老版没有；失败也保持自定义音，避免和内置音叠在一起
+        if not pcall(PlaySoundFile, path, "Master") then
+            pcall(PlaySoundFile, path)
+        end
+        return
+    end
+
     local id
     if kind == "EPIC" then id = SoundKitID("UI_EPICLOOT_TOAST") end
     id = id or SoundKitID("LEVEL_UP") or 888 -- 888 是升级音最常见的 ID，作为最后兜底
@@ -579,6 +633,7 @@ end
 local function ShowHighlight(name, label, classToken, unitToken, soundKind, imagePath)
     EnsureDB()
     if not AP_DB.spotlight.enabled then return end
+    -- 组队限制放在事件入口处理；试放按钮始终可用，方便单人调试
 
     -- 名字和技能短名都会直接拼进 FontString，先清一遍，防止存档里的奇怪字符破坏排版
     name = Sanitize(name, 40)
@@ -758,6 +813,7 @@ end
 local function ShowRemoteHighlight(name, label, classToken, unitToken)
     EnsureDB()
     if not AP_DB.spotlight.enabled then return end
+    -- 组队限制由 OnAddonMessage 入口处理；调试接口 /run 仍可直接调用
 
     name = Sanitize(name, 40)
     label = Sanitize(label, 20)
@@ -828,11 +884,12 @@ end
 -- 接收端防刷屏：同一个发送者 3 秒内只显示一次。
 -- 不同玩家不再互相挤占，各自拿一个槽位。
 local lastRemoteAt = {}
-local lastRemoteSoundAt = 0
 
 local function OnAddonMessage(prefix, message, sender)
     EnsureDB()
     if not AP_DB.spotlight.enabled then return end
+    -- 勾选“只在组队/团队中触发”后，单人状态直接跳过
+    if AP_DB.spotlight.groupOnly and not IsInGroupNow() then return end
     if type(prefix) ~= "string" or IsSecret(prefix) or prefix ~= PREFIX then return end
     if type(message) ~= "string" or IsSecret(message) then return end
 
@@ -853,12 +910,8 @@ local function OnAddonMessage(prefix, message, sender)
     if lastRemoteAt[senderName] and now - lastRemoteAt[senderName] < 3 then return end
     lastRemoteAt[senderName] = now
 
-    -- 多人可以同时占槽；音效 1.5 秒内只响一次，避免叠成噪音
-    if now - lastRemoteSoundAt >= 1.5 then
-        lastRemoteSoundAt = now
-        PlaySpotSound("EPIC")
-    end
-
+    -- 远程队友的高光只显示画面，不播声音：
+    -- 声音文件在每个人自己的客户端里，别让别人的高光用你的音效乱响。
     ShowRemoteHighlight(displayName, label, classToken, FindUnitByName(senderName))
 end
 
@@ -871,7 +924,11 @@ end
 -- 所以下面不认死参数位置，而是挑“看起来像数字”的那个当 spellID。
 local lastCastAt = {}
 local lastShowAt = 0
-local lastCustomAt = 0 -- 自定义大招上次触发时间，用来做“几分钟冷却”
+
+-- 本地触发的默认间隔（秒）：防止月火术这类高频技能每次都弹高光。
+-- 想改长短只改这一个数；设为 0 表示不限制。试放按钮不受这个限制。
+local TRIGGER_COOLDOWN = 60
+local lastTriggerAt = 0
 
 -- 调试日志：默认关闭。游戏里输入 /AP spotlog 可开关。
 -- 用来确认“到底有没有收到施法事件、事件里的技能 ID 和名字是什么”。
@@ -879,6 +936,17 @@ local debugEnabled = false
 local function DebugPrint(text)
     if not debugEnabled then return end
     print("|cffffd700[高光调试]|r " .. tostring(text))
+end
+
+-- 按设置喊话或做表情。只在本机真正施放时调用，试放和接收队友消息都不喊。
+local function DoSpotChat()
+    EnsureDB()
+    local mode = AP_DB.spotlight.chatMode
+    if mode ~= "YELL" and mode ~= "EMOTE" then return end
+    local text = Trim(Sanitize(AP_DB.spotlight.chatText, 120))
+    if text == "" then return end
+    if type(SendChatMessage) ~= "function" then return end
+    pcall(SendChatMessage, text, mode == "EMOTE" and "EMOTE" or "YELL")
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -936,6 +1004,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
 
     EnsureDB()
     if not AP_DB.spotlight.enabled then return end
+    -- 勾选“只在组队/团队中触发”后，单人状态直接跳过
+    if AP_DB.spotlight.groupOnly and not IsInGroupNow() then return end
 
     local classToken = CurrentClass()
     if not classToken then return end
@@ -968,15 +1038,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
             return
         end
 
-        -- 冷却检查：距离上一次自定义大招高光不足设定分钟数，就安静跳过
-        if lastCustomAt > 0 and now - lastCustomAt < AP_DB.spotlight.cooldown then
-            if debugEnabled then
-                DebugPrint("自定义大招冷却中，剩余约 "
-                    .. math.ceil(AP_DB.spotlight.cooldown - (now - lastCustomAt)) .. " 秒")
-            end
-            return
-        end
-
         -- 大字优先显示官方技能名；如果用户只填了 ID，就去查一次名字
         local label = custom
         if customID then label = FetchSpellName(customID) or custom end
@@ -1003,13 +1064,23 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
         return
     end
 
+    -- 默认触发间隔：60 秒内只弹一次，避免高频技能刷屏
+    if TRIGGER_COOLDOWN > 0 and lastTriggerAt > 0
+        and now - lastTriggerAt < TRIGGER_COOLDOWN then
+        if debugEnabled then
+            DebugPrint("触发间隔中，剩余约 "
+                .. math.ceil(TRIGGER_COOLDOWN - (now - lastTriggerAt)) .. " 秒")
+        end
+        return
+    end
+
     -- 同一技能 3 秒内只弹一次；全局 0.5 秒内只弹一次（防止连按多个技能时叠在一起）
     local key = spellID or info.id or info.label
     if lastCastAt[key] and now - lastCastAt[key] < 3 then return end
     if now - lastShowAt < 0.5 then return end
     lastCastAt[key] = now
     lastShowAt = now
-    if custom then lastCustomAt = now end
+    lastTriggerAt = now
 
     -- 高光大字优先用当前流派的专属称呼；广播发的也是这个称呼，队友看到的是你流派的说法
     local displayLabel = ResolveFactionAlias(info.official, info.label)
@@ -1017,6 +1088,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     local imagePath = info.id and PORTRAIT_IMAGES[info.id]
     ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", info.sound, imagePath)
     BroadcastHighlight(classToken, displayLabel)
+    DoSpotChat()
 end)
 
 -- ==========================================
@@ -1060,6 +1132,34 @@ if panel and panel.LeftPage and panel.RightPage then
             AP_DB.spotlight[option.key] = self:GetChecked() and true or false
         end)
     end
+
+    -- ---- 本地音效选择：只影响自己听到的声音 ----
+    local soundNames = { "随机", "LOLAzir1", "LOLAzir2", "LOLAzir3" }
+    local soundBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
+    soundBtn:SetSize(130, 24)
+    soundBtn:SetPoint("TOPLEFT", left, "TOPLEFT", 200, -164)
+    local function SoundButtonText()
+        local index = AP_DB.spotlight.soundIndex or 0
+        return "音效：" .. (soundNames[index + 1] or "随机")
+    end
+    soundBtn:SetText(SoundButtonText())
+    soundBtn:SetScript("OnClick", function(self)
+        local index = (AP_DB.spotlight.soundIndex or 0) + 1
+        if index > #CUSTOM_SOUNDS then index = 0 end
+        AP_DB.spotlight.soundIndex = index
+        self:SetText(SoundButtonText())
+        -- 切换时立刻试听一次，方便确认选的是哪个文件
+        if AP_DB.spotlight.sound then PlaySpotSound("EPIC") end
+    end)
+    soundBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("本地高光音效", 1, 0.82, 0.2)
+        GameTooltip:AddLine("文件放在 AzerothParallel\\Media\\sounds\\ 下", 1, 1, 1)
+        GameTooltip:AddLine("LOLAzir1.ogg / LOLAzir2.ogg / LOLAzir3.ogg", 1, 1, 1)
+        GameTooltip:AddLine("只影响你自己听到的声音", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    soundBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- ---- 自定义大招：整个插件只允许设一个 ----
     -- 用户可以填技能名（支持包含匹配，比如填“化身”就能命中“化身：艾露恩之眷”），
@@ -1119,31 +1219,83 @@ if panel and panel.LeftPage and panel.RightPage then
         self:ClearFocus()
     end)
 
-    -- 冷却滑块：1~10 分钟。只对“自定义大招”生效，默认表仍然是短防抖。
-    local cooldownSlider = CreateFrame("Slider", "AP_SpotCooldownSlider", left, "OptionsSliderTemplate")
-    cooldownSlider:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -372)
-    cooldownSlider:SetWidth(320)
-    cooldownSlider:SetMinMaxValues(1, 10)
-    cooldownSlider:SetValueStep(1)
-    cooldownSlider:SetObeyStepOnDrag(true)
-    local sliderName = cooldownSlider:GetName()
-    local sliderLow = _G[sliderName .. "Low"]
-    local sliderHigh = _G[sliderName .. "High"]
-    local sliderText = _G[sliderName .. "Text"]
-    if sliderLow then sliderLow:SetText("1 分钟") end
-    if sliderHigh then sliderHigh:SetText("10 分钟") end
-    if sliderText then
-        sliderText:SetText("自定义大招冷却")
-        sliderText:SetFont(sliderText:GetFont(), 15, "")
+    -- ---- 触发时喊话（可选）----
+    local chatLabel = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    chatLabel:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -336)
+    chatLabel:SetFont(chatLabel:GetFont(), 15, "OUTLINE")
+    chatLabel:SetText("触发时喊话（留空则关闭）")
+
+    local chatInput = CreateFrame("EditBox", nil, left, "BackdropTemplate")
+    chatInput:SetSize(198, 28)
+    chatInput:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -360)
+    chatInput:SetFontObject("GameFontNormal")
+    chatInput:SetTextColor(1, 0.9, 0.65)
+    chatInput:SetTextInsets(6, 6, 0, 0)
+    chatInput:SetAutoFocus(false)
+    chatInput:SetMaxLetters(120)
+    chatInput:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 10,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    chatInput:SetBackdropColor(0, 0, 0, 0.95)
+    chatInput:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
+    chatInput:SetText(AP_DB.spotlight.chatText or "")
+
+    local chatModeBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
+    chatModeBtn:SetSize(128, 26)
+    chatModeBtn:SetPoint("LEFT", chatInput, "RIGHT", 8, 0)
+
+    local function ChatModeLabel()
+        local mode = AP_DB.spotlight.chatMode
+        if mode == "YELL" then return "模式：大喊" end
+        if mode == "EMOTE" then return "模式：表情" end
+        return "模式：关闭"
     end
-    cooldownSlider:SetValue(math.floor((AP_DB.spotlight.cooldown or 180) / 60 + 0.5))
-    cooldownSlider:SetScript("OnValueChanged", function(self, value)
-        if type(value) ~= "number" then return end
-        AP_DB.spotlight.cooldown = math.floor(value + 0.5) * 60
-        if RefreshCustomStatus then RefreshCustomStatus() end
+    chatModeBtn:SetText(ChatModeLabel())
+    chatModeBtn:SetScript("OnClick", function(self)
+        local mode = AP_DB.spotlight.chatMode
+        if mode == "YELL" then
+            AP_DB.spotlight.chatMode = "EMOTE"
+        elseif mode == "EMOTE" then
+            AP_DB.spotlight.chatMode = "OFF"
+        else
+            AP_DB.spotlight.chatMode = "YELL"
+        end
+        self:SetText(ChatModeLabel())
     end)
 
-    -- 试放按钮：不用真进战斗，点一下就能看特效（不消耗冷却）
+    local function SaveChatText()
+        local value = Trim(Sanitize(chatInput:GetText() or "", 120))
+        AP_DB.spotlight.chatText = value
+        chatInput:SetText(value)
+    end
+    chatInput:SetScript("OnEnterPressed", function(self)
+        SaveChatText()
+        self:ClearFocus()
+    end)
+    chatInput:SetScript("OnEditFocusLost", SaveChatText)
+
+    local chatHint = left:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    chatHint:SetPoint("TOPLEFT", chatInput, "BOTTOMLEFT", 0, -4)
+    chatHint:SetFont(chatHint:GetFont(), 12, "OUTLINE")
+    chatHint:SetText("|cff888888大喊对周围玩家可见；表情以 /e 动作发送|r")
+
+    -- ---- 只在组队/团队中触发 ----
+    local groupOnly = CreateFrame("CheckButton", "AP_SpotlightGroupOnly", left, "ChatConfigCheckButtonTemplate")
+    groupOnly:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -418)
+    local groupLabel = _G[groupOnly:GetName() .. "Text"]
+    if groupLabel then
+        groupLabel:SetText("只在组队 / 团队中触发")
+        groupLabel:SetFont(groupLabel:GetFont(), 16, "OUTLINE")
+    end
+    groupOnly:SetChecked(AP_DB.spotlight.groupOnly)
+    groupOnly:SetScript("OnClick", function(self)
+        AP_DB.spotlight.groupOnly = self:GetChecked() and true or false
+    end)
+
+    -- 试放按钮：不用真进战斗，点一下就能看特效（不会喊话）
     local previewBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
     previewBtn:SetSize(150, 30)
     previewBtn:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 30, 20)
@@ -1228,9 +1380,8 @@ if panel and panel.LeftPage and panel.RightPage then
     -- 刷新“自定义大招”的状态文字，同时刷新右页清单
     RefreshCustomStatus = function()
         local custom = GetCustomSpell()
-        local minutes = math.floor((AP_DB.spotlight.cooldown or 180) / 60 + 0.5)
         if custom then
-            statusText:SetText("|cffd4af37当前：" .. custom .. "|r  |cff888888（" .. minutes .. " 分钟内不重复触发）|r")
+            statusText:SetText("|cffd4af37当前：" .. custom .. "|r  |cff888888（只认这一个技能）|r")
         else
             statusText:SetText("|cff888888未设置，使用本职业默认表。|r")
         end
