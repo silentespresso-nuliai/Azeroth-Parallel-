@@ -1545,8 +1545,8 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     local header = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     header:SetPoint("TOP", page, "TOP", 0, -6)
     header:SetText("自定义按钮")
-    header:SetFont(header:GetFont(), 20, "OUTLINE")
-    header:SetTextColor(1, 0.85, 0.3)
+    header:SetFont(header:GetFont(), 20, "")
+    header:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
     local hint = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     hint:SetPoint("TOP", header, "BOTTOM", 0, -8)
@@ -1554,7 +1554,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     hint:SetJustifyH("CENTER")
     hint:SetFont(hint:GetFont(), 13, "")
     hint:SetSpacing(5)
-    hint:SetTextColor(0.85, 0.85, 0.85)
+    hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
     hint:SetText("「表情动作」提供表情、话术和自定义按钮。\n勾选下方开关即可显示 / 收起卡片。\n以 / 开头的内容会当作表情或命令执行。")
 
     -- ---------- 卡片显示开关 ----------
@@ -1562,7 +1562,8 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     cardToggle:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -6)
     local cardToggleText = _G[cardToggle:GetName() .. "Text"]
     cardToggleText:SetText("显示表情动作卡片")
-    cardToggleText:SetFont(cardToggleText:GetFont(), 14, "OUTLINE")
+    cardToggleText:SetFont(cardToggleText:GetFont(), 14, "")
+    cardToggleText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     cardToggle:SetChecked(card:IsShown())
     cardToggle:SetScript("OnClick", function(self)
         if self:GetChecked() then UI.Show() else UI.Hide() end
@@ -1581,7 +1582,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     cardDesc:SetWidth(320)
     cardDesc:SetJustifyH("LEFT")
     cardDesc:SetFont(cardDesc:GetFont(), 12, "")
-    cardDesc:SetTextColor(0.7, 0.7, 0.7)
+    cardDesc:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
     cardDesc:SetText("勾选后显示卡片，也可以随时用 /ape 开关。\n按住 Shift 拖动卡片可调整位置。")
 
     -- ---------- 卡片配色主题选择 ----------
@@ -1592,7 +1593,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     local themeLabel = themeRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     themeLabel:SetPoint("LEFT", themeRow, "LEFT", 0, 0)
     themeLabel:SetText("卡片风格")
-    themeLabel:SetTextColor(0.85, 0.85, 0.85)
+    themeLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
     local themeButtons = {}
     local function RefreshThemeButtons()
@@ -1631,13 +1632,13 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
             edgeSize = 10,
             insets = { left = 2, right = 2, top = 2, bottom = 2 },
         })
-        block:SetBackdropColor(0, 0, 0, 0.35)
-        block:SetBackdropBorderColor(0.4, 0.4, 0.45, 1)
+        block:SetBackdropColor(0.30, 0.19, 0.09, 0.10)
+        block:SetBackdropBorderColor(AP_Theme.line[1], AP_Theme.line[2], AP_Theme.line[3], 0.45)
 
         local label = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         label:SetPoint("TOPLEFT", 12, -10)
         label:SetText("自定义 " .. slot)
-        label:SetTextColor(1, 0.85, 0.3)
+        label:SetTextColor(AP_Theme.accent[1], AP_Theme.accent[2], AP_Theme.accent[3])
 
         -- 名称：显示在鼠标提示的标题上，留空就是「自定义 N」
         local nameBox = CreateFrame("EditBox", nil, block, "InputBoxTemplate")
@@ -1651,12 +1652,12 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         local nameLabel = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         nameLabel:SetPoint("RIGHT", nameBox, "LEFT", -8, 0)
         nameLabel:SetText("名称")
-        nameLabel:SetTextColor(0.85, 0.85, 0.85)
+        nameLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
         local contentLabel = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         contentLabel:SetPoint("TOPLEFT", block, "TOPLEFT", 12, -42)
         contentLabel:SetText("要说的话")
-        contentLabel:SetTextColor(0.85, 0.85, 0.85)
+        contentLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
         local textBox = CreateFrame("EditBox", nil, block, "InputBoxTemplate")
         textBox:SetPoint("TOPLEFT", block, "TOPLEFT", 12, -62)
@@ -1675,7 +1676,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         local status = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         status:SetPoint("RIGHT", save, "LEFT", -10, 0)
         status:SetJustifyH("RIGHT")
-        status:SetTextColor(0.4, 1, 0.4)
+        status:SetTextColor(0.25, 0.45, 0.18)
 
         -- 从当前存档里把内容读进两个输入框。
         -- 注意不能在文件加载时直接读：那时 SavedVariables 还没注入，读到的会是空表。
@@ -1720,14 +1721,15 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     local modelHeader = modelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     modelHeader:SetPoint("TOP", modelPage, "TOP", 0, -18)
     modelHeader:SetText("正面形象")
-    modelHeader:SetFont(modelHeader:GetFont(), 20, "OUTLINE")
-    modelHeader:SetTextColor(1, 0.85, 0.3)
+    modelHeader:SetFont(modelHeader:GetFont(), 20, "")
+    modelHeader:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
     local modelToggle = CreateFrame("CheckButton", "AP_ModelToggle", modelPage, "ChatConfigCheckButtonTemplate")
     modelToggle:SetPoint("TOPLEFT", modelPage, "TOPLEFT", 34, -66)
     local modelToggleText = _G[modelToggle:GetName() .. "Text"]
     modelToggleText:SetText("开启正面形象（施法时显示）")
-    modelToggleText:SetFont(modelToggleText:GetFont(), 14, "OUTLINE")
+    modelToggleText:SetFont(modelToggleText:GetFont(), 14, "")
+    modelToggleText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     modelToggle:SetChecked(EnsureEmoteDB().showModel and true or false)
     modelToggle:SetScript("OnClick", function(self)
         EnsureEmoteDB().showModel = self:GetChecked() and true or false
@@ -1740,7 +1742,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     modelDesc:SetJustifyH("LEFT")
     modelDesc:SetSpacing(6)
     modelDesc:SetFont(modelDesc:GetFont(), 13, "")
-    modelDesc:SetTextColor(0.8, 0.8, 0.8)
+    modelDesc:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     modelDesc:SetText("勾选后，进入战斗后的第一次施法时，\n会在姓名卡片上方显示角色正面的 3D 模型。\n\n每次战斗只出现一次，结束约 1 秒后自动收起，\n不会常驻占用屏幕。\n\n需要先显示表情动作卡片，模型才会出现。")
 
     -- SavedVariables 在 Lua 文件执行完之后才注入，所以加载时不要立刻读。

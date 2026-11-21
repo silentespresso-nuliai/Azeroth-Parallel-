@@ -1114,7 +1114,8 @@ if panel and panel.LeftPage and panel.RightPage then
 
     local title = left:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     title:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -30)
-    title:SetFont(title:GetFont(), 24, "OUTLINE")
+    title:SetFont(title:GetFont(), 24, "")
+    title:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     title:SetText("高光特写")
 
     local intro = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1122,7 +1123,8 @@ if panel and panel.LeftPage and panel.RightPage then
     intro:SetWidth(340)
     intro:SetJustifyH("LEFT")
     intro:SetSpacing(4)
-    intro:SetText("|cffaaaaaa核心爆发技能成功施放时，在屏幕角落切入你的专属特写。\n低等级角色请用下方“自定义大招”指定一个自己会的技能。|r")
+    intro:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    intro:SetText("|cff6b5a45核心爆发技能成功施放时，在屏幕角落切入你的专属特写。\n低等级角色请用下方“自定义大招”指定一个自己会的技能。|r")
 
     -- 三个开关：启用、音效、广播
     local options = {
@@ -1136,7 +1138,8 @@ if panel and panel.LeftPage and panel.RightPage then
         local label = _G[cb:GetName() .. "Text"]
         if label then
             label:SetText(option.text)
-            label:SetFont(label:GetFont(), 18, "OUTLINE")
+            label:SetFont(label:GetFont(), 18, "")
+            label:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
         end
         cb:SetChecked(AP_DB.spotlight[option.key])
         cb:SetScript("OnClick", function(self)
@@ -1179,25 +1182,25 @@ if panel and panel.LeftPage and panel.RightPage then
 
     local customLabel = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     customLabel:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -246)
-    customLabel:SetFont(customLabel:GetFont(), 15, "OUTLINE")
+    customLabel:SetFont(customLabel:GetFont(), 15, "")
+    customLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     customLabel:SetText("自定义大招（填技能名或 ID，只设一个）")
 
     local customInput = CreateFrame("EditBox", nil, left, "BackdropTemplate")
     customInput:SetSize(178, 28)
     customInput:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -270)
     customInput:SetFontObject("GameFontNormal")
-    customInput:SetTextColor(1, 0.9, 0.65)
+    customInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     customInput:SetTextInsets(6, 6, 0, 0)
     customInput:SetAutoFocus(false)
     customInput:SetMaxLetters(60)
     customInput:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 10,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
     })
-    customInput:SetBackdropColor(0, 0, 0, 0.95)
-    customInput:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
+    customInput:SetBackdropColor(1, 0.96, 0.85, 0.55)
+    customInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
     customInput:SetText(AP_DB.spotlight.customSpell or "")
 
     local saveBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
@@ -1214,7 +1217,8 @@ if panel and panel.LeftPage and panel.RightPage then
     statusText:SetPoint("TOPLEFT", customInput, "BOTTOMLEFT", 0, -8)
     statusText:SetWidth(340)
     statusText:SetJustifyH("LEFT")
-    statusText:SetFont(statusText:GetFont(), 13, "OUTLINE")
+    statusText:SetFont(statusText:GetFont(), 13, "")
+    statusText:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
 
     -- 把输入框内容写进存档（输入为空就是清除自定义，恢复默认表）
     local function SaveCustomSpell(text)
@@ -1233,25 +1237,25 @@ if panel and panel.LeftPage and panel.RightPage then
     -- ---- 触发时喊话（可选）----
     local chatLabel = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     chatLabel:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -336)
-    chatLabel:SetFont(chatLabel:GetFont(), 15, "OUTLINE")
+    chatLabel:SetFont(chatLabel:GetFont(), 15, "")
+    chatLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     chatLabel:SetText("触发时喊话（留空则关闭）")
 
     local chatInput = CreateFrame("EditBox", nil, left, "BackdropTemplate")
     chatInput:SetSize(198, 28)
     chatInput:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -360)
     chatInput:SetFontObject("GameFontNormal")
-    chatInput:SetTextColor(1, 0.9, 0.65)
+    chatInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     chatInput:SetTextInsets(6, 6, 0, 0)
     chatInput:SetAutoFocus(false)
     chatInput:SetMaxLetters(120)
     chatInput:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 10,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
     })
-    chatInput:SetBackdropColor(0, 0, 0, 0.95)
-    chatInput:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
+    chatInput:SetBackdropColor(1, 0.96, 0.85, 0.55)
+    chatInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
     chatInput:SetText(AP_DB.spotlight.chatText or "")
 
     local chatModeBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
@@ -1290,8 +1294,9 @@ if panel and panel.LeftPage and panel.RightPage then
 
     local chatHint = left:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     chatHint:SetPoint("TOPLEFT", chatInput, "BOTTOMLEFT", 0, -4)
-    chatHint:SetFont(chatHint:GetFont(), 12, "OUTLINE")
-    chatHint:SetText("|cff888888大喊对周围玩家可见；表情以 /e 动作发送|r")
+    chatHint:SetFont(chatHint:GetFont(), 12, "")
+    chatHint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+    chatHint:SetText("|cff6b5a45大喊对周围玩家可见；表情以 /e 动作发送|r")
 
     -- ---- 只在组队/团队中触发 ----
     local groupOnly = CreateFrame("CheckButton", "AP_SpotlightGroupOnly", left, "ChatConfigCheckButtonTemplate")
@@ -1299,7 +1304,8 @@ if panel and panel.LeftPage and panel.RightPage then
     local groupLabel = _G[groupOnly:GetName() .. "Text"]
     if groupLabel then
         groupLabel:SetText("只在组队 / 团队中触发")
-        groupLabel:SetFont(groupLabel:GetFont(), 16, "OUTLINE")
+        groupLabel:SetFont(groupLabel:GetFont(), 16, "")
+        groupLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     end
     groupOnly:SetChecked(AP_DB.spotlight.groupOnly)
     groupOnly:SetScript("OnClick", function(self)
@@ -1347,13 +1353,15 @@ if panel and panel.LeftPage and panel.RightPage then
     -- 右页：本职业的触发技能清单（只读）
     local rightTitle = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     rightTitle:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -30)
-    rightTitle:SetFont(rightTitle:GetFont(), 22, "OUTLINE")
+    rightTitle:SetFont(rightTitle:GetFont(), 22, "")
+    rightTitle:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     rightTitle:SetText("本职业触发技能")
 
     local hint = right:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     hint:SetPoint("TOPLEFT", rightTitle, "BOTTOMLEFT", 0, -10)
-    hint:SetFont(hint:GetFont(), 13, "OUTLINE")
-    hint:SetText("|cff888888左页可自定义只触发一个大招；留空则用默认表|r")
+    hint:SetFont(hint:GetFont(), 13, "")
+    hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+    hint:SetText("|cff6b5a45左页可自定义只触发一个大招；留空则用默认表|r")
 
     local listText = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     listText:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -105)
@@ -1361,13 +1369,14 @@ if panel and panel.LeftPage and panel.RightPage then
     listText:SetJustifyH("LEFT")
     listText:SetSpacing(7)
     listText:SetFont(listText:GetFont(), 16, "")
+    listText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
     RefreshSkillList = function()
         -- 自定义大招优先：开了自定义就只显示这一条，避免玩家以为默认表也在生效
         local custom = GetCustomSpell()
         if custom then
-            listText:SetText("|cffd4af37自定义大招已启用|r\n\n只会响应这一个技能：\n|cffffffff"
-                .. custom .. "|r\n\n|cff888888在左页输入框留空并保存，可恢复默认职业表。|r")
+            listText:SetText("|cff8c261a自定义大招已启用|r\n\n只会响应这一个技能：\n|cff3a2414"
+                .. custom .. "|r\n\n|cff6b5a45在左页输入框留空并保存，可恢复默认职业表。|r")
             return
         end
 
@@ -1377,12 +1386,12 @@ if panel and panel.LeftPage and panel.RightPage then
         for _, info in ipairs(list) do
             if not seen[info.label] then
                 seen[info.label] = true
-                table.insert(lines, "|cffd4af37•|r " .. info.label
-                    .. "  |cff888888" .. (info.official or tostring(info.id)) .. "|r")
+                table.insert(lines, "|cff8c261a•|r " .. info.label
+                    .. "  |cff6b5a45" .. (info.official or tostring(info.id)) .. "|r")
             end
         end
         if #lines == 0 then
-            listText:SetText("|cff888888当前职业还没有配置高光技能。|r")
+            listText:SetText("|cff6b5a45当前职业还没有配置高光技能。|r")
         else
             listText:SetText(table.concat(lines, "\n"))
         end
@@ -1392,9 +1401,9 @@ if panel and panel.LeftPage and panel.RightPage then
     RefreshCustomStatus = function()
         local custom = GetCustomSpell()
         if custom then
-            statusText:SetText("|cffd4af37当前：" .. custom .. "|r  |cff888888（只认这一个技能）|r")
+            statusText:SetText("|cff8c261a当前：" .. custom .. "|r  |cff6b5a45（只认这一个技能）|r")
         else
-            statusText:SetText("|cff888888未设置，使用本职业默认表。|r")
+            statusText:SetText("|cff6b5a45未设置，使用本职业默认表。|r")
         end
         RefreshSkillList()
     end

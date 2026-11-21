@@ -13,7 +13,8 @@ local RightPage = panel.RightPage
 local title = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 title:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -20)
 title:SetText("同好名录")
-title:SetFont(title:GetFont(), 26, "OUTLINE")
+title:SetFont(title:GetFont(), 26, "")
+title:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
 local desc = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 desc:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -65)
@@ -21,16 +22,18 @@ desc:SetWidth(360)
 desc:SetJustifyH("LEFT")
 desc:SetSpacing(8)
 desc:SetFont(desc:GetFont(), 15, "")
+desc:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 desc:SetText("这里会列出：装了本插件、并且和你在同一个小队/团队/公会里出现过的玩家。\n\n" ..
     "名字和流派来自对方插件广播的数据；对方没装插件、或不在同一聊天范围时不会出现。\n\n" ..
-    "|cff888888仅保存在本机，不会上传到任何服务器。|r")
+    "|cff6b5a45仅保存在本机，不会上传到任何服务器。|r")
 
 -- 开关：和 /AP net 共用同一个状态
 local toggle = CreateFrame("CheckButton", "AP_PeersToggle", LeftPage, "ChatConfigCheckButtonTemplate")
 toggle:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -275)
 local toggleText = _G[toggle:GetName() .. "Text"]
 toggleText:SetText("接收同好名录")
-toggleText:SetFont(toggleText:GetFont(), 16, "OUTLINE")
+toggleText:SetFont(toggleText:GetFont(), 16, "")
+toggleText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 toggle:SetScript("OnClick", function(self)
     local on = self:GetChecked() and true or false
     if AP_Network and AP_Network.SetEnabled then
@@ -44,13 +47,15 @@ status:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -320)
 status:SetWidth(360)
 status:SetJustifyH("LEFT")
 status:SetFont(status:GetFont(), 14, "")
+status:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
 local hint = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 hint:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -360)
 hint:SetWidth(360)
 hint:SetJustifyH("LEFT")
 hint:SetFont(hint:GetFont(), 13, "")
-hint:SetText("|cff888888可输入 /AP net on 或 /AP net off 快速切换。\n" ..
+hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+hint:SetText("|cff6b5a45可输入 /AP net on 或 /AP net off 快速切换。\n" ..
     "姓名版改写在新客户端会被系统禁止，所以改用这份名录展示。|r")
 
 -- 右页：可滚动列表
@@ -68,6 +73,7 @@ listText:SetWidth(300)
 listText:SetJustifyH("LEFT")
 listText:SetSpacing(10)
 listText:SetFont(listText:GetFont(), 16, "")
+listText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
 local function GetDisplay(peer)
     local name = peer.name or "?"
@@ -101,7 +107,7 @@ local function Refresh()
     end)
 
     if #list == 0 then
-        listText:SetText("|cff888888还没有同好数据。\n\n" ..
+        listText:SetText("|cff6b5a45还没有同好数据。\n\n" ..
             "和装了本插件的朋友组队、进同一个公会，登录或队伍变化后就会自动交换名字。|r")
     else
         local lines = {}
@@ -110,11 +116,11 @@ local function Refresh()
             local whenText = ""
             if peer.updated and peer.updated > 0 and date then
                 local ok, t = pcall(date, "%m-%d %H:%M", peer.updated)
-                if ok and t then whenText = "  |cff777777" .. t .. "|r" end
+                if ok and t then whenText = "  |cff7a6a55" .. t .. "|r" end
             end
             table.insert(lines,
-                "|cffd4af37" .. GetDisplay(peer) .. "|r" ..
-                "  |cff888888(" .. tostring(item.key) .. ")|r" .. whenText)
+                "|cff8c261a" .. GetDisplay(peer) .. "|r" ..
+                "  |cff6b5a45(" .. tostring(item.key) .. ")|r" .. whenText)
         end
         listText:SetText(table.concat(lines, "\n"))
     end

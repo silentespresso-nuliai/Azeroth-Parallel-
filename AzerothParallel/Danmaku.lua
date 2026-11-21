@@ -163,7 +163,7 @@ end
 
 local function AddRightTab(key, label)
     local btn = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
-    btn:SetSize(166, 26)
+    btn:SetSize(108, 26) -- 三个分页各 108 宽，正好铺满 340
     if #rightTabOrder == 0 then
         btn:SetPoint("LEFT", tabBar, "LEFT", 0, 0)
     else
@@ -184,11 +184,13 @@ local function AddRightTab(key, label)
 end
 
 local danmakuRightPage = AddRightTab("danmaku", "聊天弹幕")
-local emoteRightPage = AddRightTab("emote", "表情与动作")
+local emoteRightPage = AddRightTab("emote", "表情动作")
+local modelRightPage = AddRightTab("model", "正面形象")
 
--- 给 Emotes.lua 用：它把说明和自定义编辑框挂到这个分页里，
+-- 给 Emotes.lua 用：它把说明、开关和自定义编辑框挂到这两个分页里，
 -- 并且通过 AP_SelectSettingsTab 切换分页。
 AP_EmoteSettingsPage = emoteRightPage
+AP_ModelSettingsPage = modelRightPage
 AP_SelectSettingsTab = SelectRightTab
 
 -- 打开弹幕设置子页时，整个右页分页区（按钮 + 内容）都要藏起来，
@@ -227,6 +229,11 @@ local function ShowDanmakuPage(show)
     end
 end
 
+-- 给其他模块用：从卡片图标打开设定页时，先退出弹幕子页
+AP_CloseDanmakuSettings = function()
+    if dmPage:IsShown() then ShowDanmakuPage(false) end
+end
+
 -- 设定页左页：入口按钮
 entryBtn = CreateFrame("Button", nil, settingPanel.LeftPage, "UIPanelButtonTemplate")
 entryBtn:SetSize(200, 36)
@@ -242,7 +249,8 @@ entryHint:SetWidth(340)
 entryHint:SetJustifyH("CENTER")
 entryHint:SetFont(entryHint:GetFont(), 18, "")
 entryHint:SetSpacing(10)
-entryHint:SetText("|cffd4af37聊天弹幕|r\n\n把小队、团队、公会、密语等聊天消息\n变成从屏幕边缘飘过的弹幕。\n\n点击左侧「聊天弹幕」开始设置。")
+entryHint:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+entryHint:SetText("|cff8c261a聊天弹幕|r\n\n把小队、团队、公会、密语等聊天消息\n变成从屏幕边缘飘过的弹幕。\n\n点击左侧「聊天弹幕」开始设置。")
 
 -- 默认停在「表情与动作」分页：那里有可以直接编辑的自定义按钮。
 -- 想看弹幕说明就点上方分页，或点左侧「聊天弹幕」进入详细设置。
@@ -252,7 +260,8 @@ SelectRightTab("emote")
 local leftTitle = dmPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 leftTitle:SetPoint("TOPLEFT", dmPage, "TOPLEFT", 50, -40)
 leftTitle:SetText("弹幕频道过滤：")
-leftTitle:SetFont(leftTitle:GetFont(), 22, "OUTLINE")
+leftTitle:SetFont(leftTitle:GetFont(), 22, "")
+leftTitle:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
 local channelsList = {
     { key = "SAY", name = "说 (/s)" }, { key = "YELL", name = "喊 (/y)" },
@@ -266,7 +275,8 @@ for i, chan in ipairs(channelsList) do
     -- 从 leftTitle 往下 25 像素开始，每行间隔 40
     cb:SetPoint("TOPLEFT", leftTitle, "BOTTOMLEFT", 0, -25 - ((i - 1) * 40))
     _G[cb:GetName() .. "Text"]:SetText(chan.name)
-    _G[cb:GetName() .. "Text"]:SetFont(_G[cb:GetName() .. "Text"]:GetFont(), 20, "OUTLINE")
+    _G[cb:GetName() .. "Text"]:SetFont(_G[cb:GetName() .. "Text"]:GetFont(), 20, "")
+    _G[cb:GetName() .. "Text"]:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     cb:SetChecked(dmDB.channels[chan.key])
     cb:SetScript("OnClick", function(self) dmDB.channels[chan.key] = self:GetChecked() end)
 end
@@ -275,7 +285,8 @@ end
 local rightTitle = dmPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 rightTitle:SetPoint("TOPLEFT", dmPage, "TOPLEFT", 500, -40)
 rightTitle:SetText("弹幕参数设置：")
-rightTitle:SetFont(rightTitle:GetFont(), 22, "OUTLINE")
+rightTitle:SetFont(rightTitle:GetFont(), 22, "")
+rightTitle:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
 local sliderSpeed = CreateFrame("Slider", "AP_SpeedSlider", dmPage, "OptionsSliderTemplate")
 sliderSpeed:SetPoint("TOPLEFT", rightTitle, "BOTTOMLEFT", 0, -60)
@@ -287,6 +298,10 @@ _G[sliderSpeed:GetName() .. "Low"]:SetText("快(5s)")
 _G[sliderSpeed:GetName() .. "High"]:SetText("慢(30s)")
 _G[sliderSpeed:GetName() .. "Text"]:SetText("飞行时间 (秒)")
 _G[sliderSpeed:GetName() .. "Text"]:SetFont(_G[sliderSpeed:GetName() .. "Text"]:GetFont(), 18, "")
+for _, suffix in ipairs({ "Low", "High", "Text" }) do
+    local fs = _G[sliderSpeed:GetName() .. suffix]
+    if fs then fs:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3]) end
+end
 sliderSpeed:SetValue(dmDB.time)
 sliderSpeed:SetScript("OnValueChanged", function(self, value)
     if type(value) == "number" then dmDB.time = value end
@@ -302,6 +317,10 @@ _G[sliderSize:GetName() .. "Low"]:SetText("小")
 _G[sliderSize:GetName() .. "High"]:SetText("大")
 _G[sliderSize:GetName() .. "Text"]:SetText("字体大小")
 _G[sliderSize:GetName() .. "Text"]:SetFont(_G[sliderSize:GetName() .. "Text"]:GetFont(), 18, "")
+for _, suffix in ipairs({ "Low", "High", "Text" }) do
+    local fs = _G[sliderSize:GetName() .. suffix]
+    if fs then fs:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3]) end
+end
 sliderSize:SetValue(dmDB.fontSize)
 sliderSize:SetScript("OnValueChanged", function(self, value)
     if type(value) == "number" then dmDB.fontSize = value end
@@ -309,8 +328,9 @@ end)
 
 local tip = dmPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 tip:SetPoint("TOPLEFT", sliderSize, "BOTTOMLEFT", 0, -50)
-tip:SetFont(tip:GetFont(), 16, "OUTLINE")
-tip:SetText("|cffaaaaaa提示：调节滑块立即生效。|r")
+tip:SetFont(tip:GetFont(), 16, "")
+tip:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+tip:SetText("|cff6b5a45提示：调节滑块立即生效。|r")
 
 -- 返回设定页
 local backBtn = CreateFrame("Button", nil, dmPage, "UIPanelButtonTemplate")

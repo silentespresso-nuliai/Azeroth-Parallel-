@@ -31,6 +31,13 @@ end
 -- 这里保留同名局部引用，下面所有逻辑和 UI 代码不需要改。
 local FlavorData = AP_FlavorData
 
+-- 书页是浅色羊皮纸，正文要用深色“墨水”才能看清。
+-- 颜色统一从 Core.lua 的 AP_Theme 取；万一 Core 还没定义，就用下面这份兜底。
+local THEME = AP_Theme or {
+    ink = { 0.20, 0.12, 0.06 }, inkSoft = { 0.36, 0.25, 0.14 },
+    accent = { 0.55, 0.15, 0.10 }, cream = { 1, 0.95, 0.82 }, line = { 0.30, 0.20, 0.10 },
+}
+
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 -- 玩家阵营是否能选这个流派
@@ -132,7 +139,12 @@ function FlavorManager.AddReputation(amount)
     local newTier = FlavorManager.GetTierInfo(selectedData)
 
     DEFAULT_CHAT_FRAME:AddMessage("|cff0070dd你获得了 " .. amount .. " 点 [" .. selectedData.name .. "] 声望。|r")
-    UIErrorsFrame:AddMessage("你获得了 " .. amount .. " 点 [" .. selectedData.name .. "] 声望", 0, 0.5, 1, 1)
+    local repMsg = "你获得了 " .. amount .. " 点 [" .. selectedData.name .. "] 声望"
+    if AP_EmoteUI and AP_EmoteUI.Notify then
+        AP_EmoteUI.Notify(repMsg, 0, 0.5, 1)
+    else
+        UIErrorsFrame:AddMessage(repMsg, 0, 0.5, 1, 1)
+    end
 
     if oldTier and newTier and oldTier.level < newTier.level then
         DEFAULT_CHAT_FRAME:AddMessage("|cffffd700[AP]|r 你的 [" ..
@@ -284,38 +296,36 @@ leftContent:SetSize(CONTENT_WIDTH, 400)
 leftContent:SetPoint("TOP", LeftPage, "TOP", 0, 0)
 
 -- 名牌区域
+-- 书页本身就是浅色羊皮纸，所以不再画深色底框：只留墨水字 + 一条细分割线。
 local namePlate = CreateFrame("Frame", nil, leftContent, "BackdropTemplate")
 namePlate:SetSize(CONTENT_WIDTH, 44)
 namePlate:SetPoint("TOPLEFT", leftContent, "TOPLEFT", 0, -15)
-namePlate:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 24, insets = { left = 8, right = 8, top = 8, bottom = 8 } })
-namePlate:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
-namePlate:SetBackdropBorderColor(0.8, 0.7, 0.5, 1)
+
+local nameLine = namePlate:CreateTexture(nil, "ARTWORK")
+nameLine:SetTexture("Interface\\Buttons\\WHITE8x8")
+nameLine:SetHeight(1)
+nameLine:SetPoint("BOTTOMLEFT", namePlate, "BOTTOMLEFT", 0, 2)
+nameLine:SetPoint("BOTTOMRIGHT", namePlate, "BOTTOMRIGHT", 0, 2)
+nameLine:SetVertexColor(THEME.line[1], THEME.line[2], THEME.line[3], 0.45)
 
 local nameLabel = namePlate:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-nameLabel:SetPoint("CENTER", 0, 0)
-nameLabel:SetFont(nameLabel:GetFont(), 22, "OUTLINE")
-nameLabel:SetText("|cffd4af37" .. AP_DB.flavor.customName .. "|r")
+nameLabel:SetPoint("LEFT", 2, 2)
+nameLabel:SetJustifyH("LEFT")
+nameLabel:SetFont(nameLabel:GetFont(), 26, "")
+nameLabel:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
+nameLabel:SetText(AP_DB.flavor.customName)
 
-local nameInput = CreateFrame("EditBox", nil, namePlate, "BackdropTemplate")
-nameInput:SetSize(200, 30)
-nameInput:SetPoint("CENTER", 0, 0)
+local nameInput = CreateFrame("EditBox", nil, namePlate)
+nameInput:SetSize(240, 30)
+nameInput:SetPoint("LEFT", 2, 2)
 nameInput:SetFontObject("GameFontNormalLarge")
-nameInput:SetTextColor(1, 0.9, 0.65)
-nameInput:SetTextInsets(6, 6, 0, 0)
+nameInput:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 nameInput:SetAutoFocus(false)
 nameInput:SetMaxLetters(12) -- 限制名字长度，避免超出名牌
-nameInput:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8x8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 10,
-    insets = { left = 3, right = 3, top = 3, bottom = 3 },
-})
-nameInput:SetBackdropColor(0, 0, 0, 0.95)
-nameInput:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
 nameInput:Hide()
 nameInput:SetScript("OnEnterPressed", function(self)
     if self:GetText() ~= "" then AP_DB.flavor.customName = self:GetText() end
-    nameLabel:SetText("|cffd4af37" .. AP_DB.flavor.customName .. "|r")
+    nameLabel:SetText(AP_DB.flavor.customName)
     self:Hide(); nameLabel:Show(); self:ClearFocus()
     -- 名字改了就立刻广播给装了插件的人（没装/不在同队的人收不到）
     if AP_Network and AP_Network.Broadcast then AP_Network.Broadcast() end
@@ -339,21 +349,12 @@ namePlate:SetScript("OnMouseUp", function(self, button)
     if button == "LeftButton" then StartEditName() end
 end)
 
--- 羽毛笔改成带金边底框的按钮，比原来那枚小图标显眼得多
-local pencilBtn = CreateFrame("Button", nil, namePlate, "BackdropTemplate")
-pencilBtn:SetSize(30, 30)
-pencilBtn:SetPoint("RIGHT", -10, 0)
-pencilBtn:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8x8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 10,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-})
-pencilBtn:SetBackdropColor(0.12, 0.09, 0.05, 0.95)
-pencilBtn:SetBackdropBorderColor(0.83, 0.69, 0.22, 1)
+-- 羽毛笔：书页上不再套金边底框，只留一枚小图标，落在名字右侧
+local pencilBtn = CreateFrame("Button", nil, namePlate)
+pencilBtn:SetSize(24, 24)
+pencilBtn:SetPoint("RIGHT", -2, 2)
 local pencilIcon = pencilBtn:CreateTexture(nil, "ARTWORK")
-pencilIcon:SetPoint("TOPLEFT", 6, -6)
-pencilIcon:SetPoint("BOTTOMRIGHT", -6, 6)
+pencilIcon:SetAllPoints()
 pencilIcon:SetTexture("Interface\\Icons\\INV_Misc_Quill_01")
 pencilBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
 pencilBtn:SetScript("OnClick", StartEditName)
@@ -374,21 +375,48 @@ local TAB_MAX_WIDTH, TAB_HEIGHT, TAB_GAP, TAB_PADDING = 110, 26, 4, 14
 local TAB_FONT_SIZE, TAB_MIN_FONT_SIZE = 13, 9
 local tabPool = {}
 
+-- 选中 / 未选中的样式：选中 = 暗红底 + 米色字；未选 = 半透明羊皮纸底 + 墨水字
+local function StyleTab(tab, selected)
+    if selected then
+        tab:SetBackdropColor(THEME.accent[1], THEME.accent[2], THEME.accent[3], 1)
+        tab:SetBackdropBorderColor(0.30, 0.09, 0.05, 1)
+        tab.label:SetTextColor(THEME.cream[1], THEME.cream[2], THEME.cream[3])
+    else
+        tab:SetBackdropColor(0.80, 0.68, 0.46, 0.35)
+        tab:SetBackdropBorderColor(THEME.line[1], THEME.line[2], THEME.line[3], 0.7)
+        tab.label:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
+    end
+end
+
 local function AcquireTab(index)
     local tab = tabPool[index]
     if not tab then
-        -- 匿名按钮 (name = nil)，所以不能用 _G[tab:GetName() .. "Text"]，统一用 GetFontString()
-        tab = CreateFrame("Button", nil, factionTabContainer, "UIPanelButtonTemplate")
+        -- 匿名按钮 (name = nil)，所以不能用 _G[tab:GetName() .. "Text"]，统一用 label 自己记
+        tab = CreateFrame("Button", nil, factionTabContainer, "BackdropTemplate")
         tab:SetHeight(TAB_HEIGHT)
+        tab:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
 
-        local fs = tab:GetFontString()
-        if fs then
-            tab.apFontPath = fs:GetFont() -- 记下字体路径，后面按需调整字号
-            if tab.apFontPath then
-                fs:SetFont(tab.apFontPath, TAB_FONT_SIZE, "OUTLINE")
-            end
-            fs:SetWordWrap(false) -- 不折行
+        local fs = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("CENTER", 0, 0)
+        tab.label = fs
+        -- 保持和原按钮一样的用法：tab:SetText / tab:GetFontString
+        tab.SetText = function(self, t) self.label:SetText(t) end
+        tab.GetFontString = function(self) return self.label end
+
+        tab.apFontPath = fs:GetFont() -- 记下字体路径，后面按需调整字号
+        if tab.apFontPath then
+            fs:SetFont(tab.apFontPath, TAB_FONT_SIZE, "")
         end
+        fs:SetWordWrap(false) -- 不折行
+
+        local hl = tab:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetTexture("Interface\\Buttons\\WHITE8x8")
+        hl:SetAllPoints()
+        hl:SetVertexColor(1, 1, 1, 0.18)
 
         tabPool[index] = tab
     end
@@ -397,16 +425,22 @@ end
 
 local levelDisplay = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 levelDisplay:SetPoint("TOPLEFT", leftContent, "TOPLEFT", 0, -105)
-levelDisplay:SetFont(levelDisplay:GetFont(), 20, "OUTLINE")
-levelDisplay:SetTextColor(1, 0.8, 0)
+levelDisplay:SetFont(levelDisplay:GetFont(), 20, "")
+levelDisplay:SetTextColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
 
+-- 声望条：暗红进度 + 羊皮纸色底 + 细墨线边框
 local repBar = CreateFrame("StatusBar", nil, leftContent, "BackdropTemplate")
 repBar:SetSize(CONTENT_WIDTH, 20)
 repBar:SetPoint("TOPLEFT", leftContent, "TOPLEFT", 0, -140)
 repBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-repBar:SetStatusBarColor(0.3, 0.8, 0.3)
-repBar:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
-repBar:SetBackdropColor(0, 0, 0, 0.8)
+repBar:SetStatusBarColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
+repBar:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Buttons\\WHITE8x8",
+    edgeSize = 1,
+})
+repBar:SetBackdropColor(0.35, 0.24, 0.12, 0.30)
+repBar:SetBackdropBorderColor(THEME.line[1], THEME.line[2], THEME.line[3], 0.8)
 
 local repText = repBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 repText:SetPoint("CENTER")
@@ -414,18 +448,19 @@ repText:SetFont(repText:GetFont(), 12, "OUTLINE")
 
 local nextTierDisplay = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 nextTierDisplay:SetPoint("TOP", repBar, "BOTTOM", 0, -5)
-nextTierDisplay:SetFont(nextTierDisplay:GetFont(), 14, "OUTLINE")
-nextTierDisplay:SetTextColor(0.8, 0.8, 0.8)
+nextTierDisplay:SetFont(nextTierDisplay:GetFont(), 14, "")
+nextTierDisplay:SetTextColor(THEME.inkSoft[1], THEME.inkSoft[2], THEME.inkSoft[3])
 
 local historyTitle = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 historyTitle:SetPoint("TOPLEFT", leftContent, "TOPLEFT", 0, -190)
-historyTitle:SetText("|cffffd700最近履历：|r")
+historyTitle:SetText("|cff8c261a最近履历：|r")
 
 local historyText = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 historyText:SetPoint("TOPLEFT", leftContent, "TOPLEFT", 0, -210)
 historyText:SetWidth(CONTENT_WIDTH)
 historyText:SetJustifyH("LEFT")
 historyText:SetSpacing(5)
+historyText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 
 local convertBtn = CreateFrame("Button", nil, leftContent, "UIPanelButtonTemplate")
 convertBtn:SetSize(180, 30)
@@ -455,7 +490,7 @@ iconFrame:SetSize(80, 80)
 iconFrame:SetPoint("TOP", RightPage, "TOP", 0, -20)
 iconFrame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12, insets = { left = 2, right = 2, top = 2, bottom = 2 } })
 iconFrame:SetBackdropColor(0, 0, 0, 1)
-iconFrame:SetBackdropBorderColor(1, 0.8, 0, 1)
+iconFrame:SetBackdropBorderColor(0.36, 0.22, 0.10, 1)
 local badgeIcon = iconFrame:CreateTexture(nil, "ARTWORK")
 badgeIcon:SetAllPoints()
 
@@ -473,6 +508,7 @@ descText:SetWidth(280)
 descText:SetJustifyH("LEFT")
 descText:SetSpacing(12)
 descText:SetFont(descText:GetFont(), 18, "")
+descText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 
 -- “反映到游戏内提示”的开关：勾选后，鼠标悬停技能时第一行显示本流派的称呼。
 -- 只包装 tooltip 的显示函数，不碰 GetSpellInfo，别人看不到，也不会影响其他插件。
@@ -480,7 +516,8 @@ local tooltipToggle = CreateFrame("CheckButton", "AP_TooltipAliasToggle", RightP
 tooltipToggle:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 50, -32)
 local toggleText = _G[tooltipToggle:GetName() .. "Text"]
 toggleText:SetText("应用到游戏内提示（仅自己可见）")
-toggleText:SetFont(toggleText:GetFont(), 14, "OUTLINE")
+toggleText:SetFont(toggleText:GetFont(), 14, "")
+toggleText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 tooltipToggle:SetChecked(AP_DB.flavor.tooltipAlias and true or false)
 tooltipToggle:SetScript("OnClick", function(self)
     local on = self:GetChecked() and true or false
@@ -505,6 +542,7 @@ spellText:SetWidth(280)
 spellText:SetJustifyH("LEFT")
 spellText:SetSpacing(8)
 spellText:SetFont(spellText:GetFont(), 16, "")
+spellText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 spellScrollFrame:Hide()
 
 -- 未实装职业提示：玩家自己的职业还没有流派数据时，在右页底部说明一句，
@@ -513,9 +551,9 @@ local classNotice = RightPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSm
 classNotice:SetPoint("BOTTOM", RightPage, "BOTTOM", 0, 18)
 classNotice:SetWidth(340)
 classNotice:SetJustifyH("CENTER")
-classNotice:SetFont(classNotice:GetFont(), 13, "OUTLINE")
-classNotice:SetText("|cffffd700你的职业「" .. (select(1, UnitClass("player")) or "未知")
-    .. "」的流派设定仍在撰写中|r\n|cff888888当前展示德鲁伊示例，后续版本会补齐。|r")
+classNotice:SetFont(classNotice:GetFont(), 13, "")
+classNotice:SetText("|cff8c261a你的职业「" .. (select(1, UnitClass("player")) or "未知")
+    .. "」的流派设定仍在撰写中|r\n|cff6b5a45当前展示德鲁伊示例，后续版本会补齐。|r")
 classNotice:Hide()
 
 -- 记住上一次显示的是哪个流派，切流派时把滚动条拉回顶部
@@ -566,9 +604,165 @@ end
 -- 导出给 Overrides.lua 用：它需要知道“当前流派有哪些称呼”，才能改鼠标提示。
 AP_FlavorManager.GetTermList = BuildTermList
 
+-- ==========================================
+-- 技能熟练度（模仿魔兽自带的武器熟练度）
+-- ==========================================
+-- 规则：
+--   * 每次成功施放技能有概率 +1 点；等级越高、越接近上限越难涨。
+--   * 上限 = 角色等级 × 5，60 级就是 300，所以基本要练到 60 级才可能满。
+--   * 只统计「称谓典籍」里非天赋的条目，按官方技能名存档。
+local playerLevel = 1
+
+local function IsSecret(value)
+    if type(issecretvalue) ~= "function" then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret
+end
+
+local function RefreshPlayerLevel()
+    local ok, level = pcall(UnitLevel, "player")
+    if ok and type(level) == "number" and not IsSecret(level) and level > 0 then
+        playerLevel = level
+    end
+end
+RefreshPlayerLevel()
+
+local function GetSkillProfTable()
+    AP_DB.flavor = AP_DB.flavor or {}
+    AP_DB.flavor.skillProf = AP_DB.flavor.skillProf or {}
+    return AP_DB.flavor.skillProf
+end
+
+local function GetSkillProf(official)
+    return GetSkillProfTable()[official] or 0
+end
+
+local function GetMaxSkillProf()
+    return math.max(5, playerLevel * 5)
+end
+
+-- 文字版熟练度条：绿色已练部分 + 灰色未练部分
+local function FormatProfBar(current, maxProf)
+    local ratio = (maxProf > 0) and (current / maxProf) or 0
+    local filled = math.floor(ratio * 10 + 0.5)
+    if filled < 0 then filled = 0 end
+    if filled > 10 then filled = 10 end
+    return "|cff3f6b2e" .. current .. "|r|cff6b5a45/" .. maxProf .. "|r  "
+        .. "|cff3f6b2e" .. string.rep("=", filled) .. "|r"
+        .. "|cff9a8a72" .. string.rep("-", 10 - filled) .. "|r"
+end
+
+-- 当前职业/流派里可以练的条目：官方技能名 -> 词条
+local profTermMap, profTermMapKey
+local function GetProfTermMap()
+    local key = tostring(AP_DB.flavor.currentClass) .. ":" .. tostring(AP_DB.flavor.currentFaction)
+    if profTermMapKey == key then return profTermMap end
+
+    profTermMapKey, profTermMap = key, {}
+    local terms = BuildTermList(AP_DB.flavor.currentClass, AP_DB.flavor.currentFaction)
+    if terms then
+        for _, term in ipairs(terms) do
+            -- 天赋是被动，不参与熟练度；其余可施放条目都记录
+            if term.category ~= "天赋" then
+                profTermMap[term.official] = term
+            end
+        end
+    end
+    return profTermMap
+end
+
+local function GetSpellNameByID(spellID)
+    local ok, name
+    if C_Spell and C_Spell.GetSpellInfo then
+        ok, name = pcall(function()
+            local info = C_Spell.GetSpellInfo(spellID)
+            return info and info.name
+        end)
+    else
+        ok, name = pcall(GetSpellInfo, spellID)
+    end
+    if not ok or type(name) ~= "string" then return nil end
+    if IsSecret(name) then return nil end
+    return name
+end
+
+-- 技能典籍开着时，熟练度上涨后延迟刷新，避免每次施法都重排整页文字
+local profRefreshPending = false
+local function QueueSpellBookRefresh()
+    if not showingSpellBook or profRefreshPending then return end
+    profRefreshPending = true
+    local function DoRefresh()
+        profRefreshPending = false
+        if showingSpellBook then
+            UI.RefreshSpellBook(select(1, FlavorManager.GetPreviewFactionData()))
+        end
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(1.0, DoRefresh)
+    else
+        DoRefresh()
+    end
+end
+
+-- 施法成功：按概率涨一点熟练度
+local profFrame = CreateFrame("Frame")
+if profFrame.RegisterUnitEvent then
+    profFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+else
+    -- 老内核没有 RegisterUnitEvent，退回普通注册，再在回调里过滤单位
+    profFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+end
+profFrame:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
+    if unit ~= "player" then return end
+    if not spellID then return end
+    local spellName = GetSpellNameByID(spellID)
+    if not spellName then return end
+
+    local term = GetProfTermMap()[spellName]
+    if not term then return end
+
+    local db = GetSkillProfTable()
+    local current = db[term.official] or 0
+    local maxProf = GetMaxSkillProf()
+    if current >= maxProf then return end
+
+    -- 越接近上限越难涨：<100 30%，<200 20%，再往上 10%
+    local chance
+    if current < 100 then
+        chance = 0.30
+    elseif current < 200 then
+        chance = 0.20
+    else
+        chance = 0.10
+    end
+    if math.random() > chance then return end
+
+    current = current + 1
+    db[term.official] = current
+
+    -- 和流派声望提示同色（蓝），并显示在卡片上方
+    local profMsg = "熟练度提升：" .. (term.alias or term.official) ..
+        "  " .. current .. "/" .. maxProf
+    if AP_EmoteUI and AP_EmoteUI.Notify then
+        AP_EmoteUI.Notify(profMsg, 0, 0.5, 1)
+    else
+        UIErrorsFrame:AddMessage(profMsg, 0, 0.5, 1, 1)
+    end
+    QueueSpellBookRefresh()
+end)
+
+-- 登录 / 升级时更新缓存的角色等级（上限 = 等级 × 5）
+local levelFrame = CreateFrame("Frame")
+levelFrame:RegisterEvent("PLAYER_LOGIN")
+levelFrame:RegisterEvent("PLAYER_LEVEL_UP")
+levelFrame:SetScript("OnEvent", function(self, event)
+    RefreshPlayerLevel()
+    if event == "PLAYER_LEVEL_UP" then QueueSpellBookRefresh() end
+end)
+
 function UI.RefreshSpellBook(previewData)
     if not previewData then
-        spellText:SetText("|cff888888暂无数据|r")
+        spellText:SetText("|cff6b5a45暂无数据|r")
         return
     end
 
@@ -577,22 +771,34 @@ function UI.RefreshSpellBook(previewData)
     local key = tostring(AP_DB.flavor.previewClass) .. ":" .. tostring(previewData.id)
 
     if not terms or #terms == 0 then
-        spellText:SetText("|cffffd700" .. previewData.name .. " · 称谓典籍|r\n\n" ..
-            "|cff888888该流派暂时没有词条。\n\n词条库按“职业 → 流派”整理，目前只有德鲁伊的三个流派有初稿，其他职业会陆续补上。|r")
+        spellText:SetText("|cff8c261a" .. previewData.name .. " · 称谓典籍|r\n\n" ..
+            "|cff6b5a45该流派暂时没有词条。\n\n词条库按“职业 → 流派”整理，目前只有德鲁伊的三个流派有初稿，其他职业会陆续补上。|r")
     else
-        local lines = { "|cffffd700" .. previewData.name .. " · 称谓典籍|r\n" }
+        -- 只有预览自己的职业时才显示熟练度；预览别的职业没有参考意义
+        local showProf = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass)
+
+        local lines = { "|cff8c261a" .. previewData.name .. " · 称谓典籍|r" }
+        if showProf then
+            table.insert(lines, "|cff6b5a45熟练度上限：" .. GetMaxSkillProf() .. "（角色等级 × 5）|r")
+        end
+        table.insert(lines, "")
         local lastCategory
         for _, term in ipairs(terms) do
             -- 换了分类就插一条金色小标题（同分类的条目自动归在一起）
             if term.category and term.category ~= lastCategory then
-                table.insert(lines, (lastCategory and "\n" or "") .. "|cffd4af37【" .. term.category .. "】|r")
+                table.insert(lines, (lastCategory and "\n" or "") .. "|cff8c261a【" .. term.category .. "】|r")
                 lastCategory = term.category
             end
             -- 一行：绿色 = 本流派称呼，灰色 = 官方原名，方便对照
-            table.insert(lines, "|cff9be54f" .. (term.alias or "?") .. "|r |cff888888（官方：" .. (term.official or "?") .. "）|r")
+            table.insert(lines, "|cff3f6b2e" .. (term.alias or "?") .. "|r |cff6b5a45（官方：" .. (term.official or "?") .. "）|r")
             -- 有备注的话，缩进一行灰字补一句说明
             if term.note and term.note ~= "" then
-                table.insert(lines, "|cff888888　　" .. term.note .. "|r")
+                table.insert(lines, "|cff6b5a45　　" .. term.note .. "|r")
+            end
+            -- 熟练度（天赋是被动的，不显示；预览别的职业时也不显示）
+            if showProf and term.category ~= "天赋" then
+                table.insert(lines, "|cff6b5a45　　熟练度：|r" ..
+                    FormatProfBar(GetSkillProf(term.official), GetMaxSkillProf()))
             end
         end
         spellText:SetText(table.concat(lines, "\n"))
@@ -609,7 +815,7 @@ function UI.RefreshHistory()
     local lines = {}
     for _, text in ipairs(AP_DB.flavor.history) do table.insert(lines, "• " .. text) end
     if #lines == 0 then
-        historyText:SetText("|cff888888暂无履历，去冒险吧。|r")
+        historyText:SetText("|cff8a7a62暂无履历，去冒险吧。|r")
     else
         historyText:SetText(table.concat(lines, "\n"))
     end
@@ -650,7 +856,7 @@ function UI.Refresh()
             local fs = tab:GetFontString()
             if fs and tab.apFontPath then
                 -- 先恢复标准字号、自动宽度，再量文字真实宽度
-                fs:SetFont(tab.apFontPath, TAB_FONT_SIZE, "OUTLINE")
+                fs:SetFont(tab.apFontPath, TAB_FONT_SIZE, "")
                 fs:SetWidth(0)
             end
             tab:SetText(faction.name)
@@ -684,7 +890,7 @@ function UI.Refresh()
                 if textWidths[i] > space then
                     size = math.max(TAB_MIN_FONT_SIZE, math.floor(TAB_FONT_SIZE * space / textWidths[i]))
                 end
-                if tab.apFontPath then fs:SetFont(tab.apFontPath, size, "OUTLINE") end
+                if tab.apFontPath then fs:SetFont(tab.apFontPath, size, "") end
                 fs:SetWidth(widths[i] - 2)
             end
 
@@ -692,12 +898,9 @@ function UI.Refresh()
             tab:SetPoint("TOPLEFT", factionTabContainer, "TOPLEFT", x, 0)
             x = x + widths[i] + TAB_GAP
 
-            -- 当前选中的高亮为绿色，其余恢复普通文字
-            if selectedID == faction.id then
-                tab:SetText("|cff00ff00" .. faction.name .. "|r")
-            else
-                tab:SetText(faction.name)
-            end
+            -- 选中 = 暗红底 + 米色字；未选 = 半透明羊皮纸底 + 墨水字
+            tab:SetText(faction.name)
+            StyleTab(tab, selectedID == faction.id)
 
             tab:SetScript("OnClick", function()
                 AP_DB.flavor.previewFaction = faction.id
@@ -770,18 +973,18 @@ function UI.Refresh()
         and previewData.id == AP_DB.flavor.currentFaction)
 
     if isOwn then
-        repBar:SetStatusBarColor(0.3, 0.8, 0.3)
+        repBar:SetStatusBarColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
     else
-        repBar:SetStatusBarColor(0.5, 0.5, 0.5)
+        repBar:SetStatusBarColor(0.50, 0.44, 0.36)
     end
 
     local tier, nextTier, rep = FlavorManager.GetTierInfo(previewData)
     if tier then
         if isOwn then
-            levelDisplay:SetText("|cffffd700当前身份：|r" .. tier.name)
+            levelDisplay:SetText("|cff5c3f23当前身份：|r" .. tier.name)
         else
             -- 明确写“未激活”，避免把这里的 0 声望误当成自己当前流派的经验
-            levelDisplay:SetText("|cff888888预览：" .. previewData.name .. " · " .. tier.name .. "（未激活）|r")
+            levelDisplay:SetText("|cff7a6a55预览：" .. previewData.name .. " · " .. tier.name .. "（未激活）|r")
         end
         if nextTier then
             local prevExp = tier.exp or 0
@@ -792,13 +995,13 @@ function UI.Refresh()
             if isOwn then
                 nextTierDisplay:SetText("下一阶级：" .. nextTier.name .. " (还需 " .. (nextExp - rep) .. ")")
             else
-                nextTierDisplay:SetText("|cff888888预览下一阶级：" .. nextTier.name .. " (还需 " .. (nextExp - rep) .. ")|r")
+                nextTierDisplay:SetText("|cff7a6a55预览下一阶级：" .. nextTier.name .. " (还需 " .. (nextExp - rep) .. ")|r")
             end
         else
             repBar:SetMinMaxValues(0, 1)
             repBar:SetValue(1)
             repText:SetText("崇拜")
-            nextTierDisplay:SetText(isOwn and "已到达最高阶级。" or "|cff888888该流派已达最高阶级。|r")
+            nextTierDisplay:SetText(isOwn and "已到达最高阶级。" or "|cff7a6a55该流派已达最高阶级。|r")
         end
     end
 end
@@ -834,3 +1037,20 @@ end)
 
 UI.RefreshHistory()
 UI.Refresh()
+
+-- ==========================================
+-- 对外接口：从其他模块直接打开「技能典籍（熟练度）」页
+-- ==========================================
+function UI.OpenSkillBook()
+    -- 强制回到自己的当前职业/流派
+    AP_DB.flavor.previewClass = AP_DB.flavor.currentClass
+    AP_DB.flavor.previewFaction = AP_DB.flavor.currentFaction
+    showingSpellBook = true
+
+    if AP_MainFrame then AP_MainFrame:Show() end
+    if AP_Tabs and AP_Tabs[2] and AP_Tabs[2].Click then
+        AP_Tabs[2]:Click() -- 切到「职业流派」Tab
+    end
+
+    UI.Refresh()
+end
