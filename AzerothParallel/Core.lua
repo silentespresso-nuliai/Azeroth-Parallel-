@@ -14,11 +14,11 @@ local MEDIA = "Interface\\AddOns\\AzerothParallel\\Media\\"
 -- ------------------------------------------
 AP_Theme = {
     media    = MEDIA,
-    ink      = { 0.20, 0.12, 0.06 },   -- 正文墨水（深褐）
-    inkSoft  = { 0.36, 0.25, 0.14 },   -- 次要文字
+    ink      = { 0.20, 0.13, 0.06 },   -- 正文墨水（柔和深棕，避免发黑）
+    inkSoft  = { 0.34, 0.24, 0.13 },   -- 次要文字
     accent   = { 0.55, 0.15, 0.10 },   -- 强调色（暗红，用于标题、选中）
     cream    = { 1.00, 0.95, 0.82 },   -- 深色底上的浅色字
-    line     = { 0.30, 0.20, 0.10 },   -- 分割线、描边
+    line     = { 0.24, 0.15, 0.07 },   -- 分割线、描边
 }
 -- 方便给文字上色：AP_Theme.Paint(fontString, "ink" | "inkSoft" | "accent" | "cream")
 function AP_Theme.Paint(fs, key)
@@ -48,6 +48,8 @@ local bookArt = AP_MainFrame:CreateTexture(nil, "BACKGROUND")
 bookArt:SetAllPoints()
 bookArt:SetTexture(MEDIA .. "Book.tga")
 bookArt:SetTexCoord(0, BOOK_W / TEX_SIZE, 0, BOOK_H / TEX_SIZE)
+-- 原图偏亮，压暗并略偏暖，浅色字/纹理不会发白刺眼
+bookArt:SetVertexColor(0.84, 0.78, 0.70)
 AP_MainFrame.bookArt = bookArt
 
 -- 兼容旧代码：以前的 BasicFrameTemplate 带有 TitleBg / title / CloseButton，
