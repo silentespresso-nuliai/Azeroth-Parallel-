@@ -1,0 +1,6 @@
+package-as: AzerothParallel
+
+ignore:
+  - .github
+  - README.md
+  - .gitignore
