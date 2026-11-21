@@ -996,6 +996,17 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     if eventName and IsSecret(eventName) then eventName = nil end
     if not spellID and not eventName then return end
 
+    -- 起手高光让位给正面形象：Emotes.lua 登记了这次施法，消费后跳过本次高光
+    if AP_SuppressSpotlightAt and (GetTime() - AP_SuppressSpotlightAt > 20) then
+        AP_SuppressSpotlightSpell = nil
+        AP_SuppressSpotlightAt = nil
+    end
+    if spellID and AP_SuppressSpotlightSpell == spellID then
+        AP_SuppressSpotlightSpell = nil
+        AP_SuppressSpotlightAt = nil
+        return
+    end
+
     if debugEnabled then
         DebugPrint("收到施法：spellID=" .. tostring(spellID)
             .. "，事件名=" .. tostring(eventName)

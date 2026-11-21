@@ -525,14 +525,7 @@ local MODEL_H = 660 -- 再高一点，方便 Shift 拖到合适位置
 local modelFrame = CreateFrame("Frame", nil, card, "BackdropTemplate")
 modelFrame:SetSize(MODEL_W, MODEL_H)
 modelFrame:SetFrameStrata("HIGH")
-modelFrame:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8x8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 12,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-})
-modelFrame:SetBackdropColor(0.07, 0.07, 0.08, 0.96)
-modelFrame:SetBackdropBorderColor(0.5, 0.5, 0.55, 1)
+-- 不要背景：只显示人物，空白区域透明，不会再有黑框/空白问题
 modelFrame:Hide()
 
 -- 模型窗口位置存档：Shift 拖动后保存，重载/重新登录后恢复
@@ -558,17 +551,30 @@ end
 UI.RestoreModelPosition = RestoreModelPosition
 RestoreModelPosition()
 
--- 模型窗口自己可以按住 Shift 拖动，不再带着整张卡片一起跑
-modelFrame:EnableMouse(true)
+-- 只有顶部一条拖动条响应鼠标，窗口其余部分完全不挡点击，
+-- 避免战斗中大窗口遮住动作条导致“插件行为导致错误”。
 modelFrame:SetMovable(true)
-modelFrame:RegisterForDrag("LeftButton")
-modelFrame:SetScript("OnDragStart", function(self)
-    if IsShiftKeyDown() then self:StartMoving() end
+local modelDragBar = CreateFrame("Frame", nil, modelFrame, "BackdropTemplate")
+modelDragBar:SetPoint("TOPLEFT", modelFrame, "TOPLEFT", 4, -4)
+modelDragBar:SetPoint("TOPRIGHT", modelFrame, "TOPRIGHT", -4, -4)
+modelDragBar:SetHeight(18)
+modelDragBar:EnableMouse(true)
+modelDragBar:RegisterForDrag("LeftButton")
+modelDragBar:SetScript("OnDragStart", function()
+    if IsShiftKeyDown() then modelFrame:StartMoving() end
 end)
-modelFrame:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
+modelDragBar:SetScript("OnDragStop", function()
+    modelFrame:StopMovingOrSizing()
     SaveModelPosition()
 end)
+
+local dragHint = modelDragBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+dragHint:SetPoint("CENTER")
+dragHint:SetFont(dragHint:GetFont(), 11, "")
+dragHint:SetTextColor(0.8, 0.8, 0.8)
+dragHint:SetShadowColor(0, 0, 0, 0.9)
+dragHint:SetShadowOffset(1, -1)
+dragHint:SetText("Shift + 拖动这里")
 
 -- 提示条要盖在模型窗口上方，避免被高窗口挡住
 notifyFrame:SetFrameLevel(modelFrame:GetFrameLevel() + 5)
@@ -577,10 +583,13 @@ local playerModel = CreateFrame("PlayerModel", "AP_FrontModel", modelFrame)
 playerModel:SetPoint("TOPLEFT", 6, -6)
 playerModel:SetPoint("BOTTOMRIGHT", -6, 6)
 playerModel:SetFrameLevel(modelFrame:GetFrameLevel() + 1)
+playerModel:EnableMouse(false)
 
 -- 施法动作 ID 各客户端不完全一样：按优先级找一个模型确实拥有的
 local castAnimID
 local CAST_ANIM_CANDIDATES = { 53, 54, 32, 31, 11 }
+local modelCasting = false
+
 local function FindCastAnim()
     castAnimID = nil
     if not playerModel.HasAnimation then return end
@@ -593,6 +602,12 @@ local function FindCastAnim()
     end
 end
 
+-- 施法动作播完一次后自动重播，避免停在最后一个姿势上“傻站”
+playerModel:SetScript("OnAnimFinished", function(self)
+    if modelCasting and modelFrame:IsShown() and castAnimID then
+        pcall(self.SetAnimation, self, castAnimID)
+    end
+end)
 
 local function RefreshModelUnit()
     pcall(playerModel.SetUnit, playerModel, "player")
@@ -606,6 +621,8 @@ local function RefreshModelUnit()
         pcall(playerModel.SetCamera, playerModel, 0)
     end
 
+    -- 先回到站立，等真正展示时再切施法动作
+    pcall(playerModel.SetAnimation, playerModel, 0)
     FindCastAnim()
 end
 
@@ -621,6 +638,7 @@ function UI.RefreshModel()
     -- 不再常驻显示：只有施法时临时出现；关闭开关时立刻收起
     if not EnsureEmoteDB().showModel then
         modelHideToken = modelHideToken + 1
+        modelCasting = false
         modelFrame:Hide()
         UpdateNotifyAnchor()
     end
@@ -629,6 +647,7 @@ end
 -- 卡片收起时，模型也一起收起
 card:HookScript("OnHide", function()
     modelHideToken = modelHideToken + 1
+    modelCasting = false
     modelFrame:Hide()
 end)
 
@@ -667,6 +686,7 @@ local function ShowCastModel()
     if not EnsureEmoteDB().showModel or not card:IsShown() then return end
 
     modelHideToken = modelHideToken + 1
+    modelCasting = true
     local wasHidden = not modelFrame:IsShown()
     modelFrame:Show()
 
@@ -675,7 +695,7 @@ local function ShowCastModel()
         RefreshModelUnit()
     end
 
-    -- 使用模型自带的通用施法动作
+    -- 切到施法动作；播完由 OnAnimFinished 自动重播
     if castAnimID then
         pcall(playerModel.SetAnimation, playerModel, castAnimID)
     end
@@ -694,6 +714,7 @@ local function HideCastModelSoon(delay)
             return
         end
 
+        modelCasting = false
         modelFrame:Hide()
         UpdateNotifyAnchor()
     end
@@ -708,33 +729,83 @@ end
 -- 每次进入战斗只展示一次：记录本次战斗里是否已经触发过
 local shownThisCombat = false
 
--- 进入 / 离开战斗时重置标记
+local function IsSecretValue(value)
+    if type(issecretvalue) ~= "function" then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret
+end
+
+local function IsPlayerInCombat()
+    local ok, inCombat = pcall(UnitAffectingCombat, "player")
+    if not ok or IsSecretValue(inCombat) then return false end
+    return inCombat and true or false
+end
+
+local function HasHostileTarget()
+    local okExists, exists = pcall(UnitExists, "target")
+    if not okExists or IsSecretValue(exists) or not exists then return false end
+
+    local okEnemy, enemy = pcall(UnitIsEnemy, "player", "target")
+    if not okEnemy or IsSecretValue(enemy) then return false end
+    return enemy and true or false
+end
+
+-- 起手用高光技能时，让高光模块跳过这一次，避免和 3D 模型同时出现
+local function MaybeSuppressSpotlight(spellID)
+    if not spellID or shownThisCombat then return end
+    if not EnsureEmoteDB().showModel or not card:IsShown() then return end
+    -- 只针对战斗中或对敌对目标的起手，避免误伤脱战治疗/增益的高光
+    if not IsPlayerInCombat() and not HasHostileTarget() then return end
+    AP_SuppressSpotlightSpell = spellID
+    AP_SuppressSpotlightAt = GetTime()
+end
+
+local function TryShowFirstCombatCast()
+    if shownThisCombat then return end
+
+    if IsPlayerInCombat() then
+        shownThisCombat = true
+        ShowCastModel()
+        return
+    end
+
+    -- 起手技能（如月火术）在施法成功那一瞬间可能还没被标记为“战斗中”，
+    -- 稍等 0.2 秒再检查一次，进战斗了就补上展示。
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.2, function()
+            if shownThisCombat then return end
+            if IsPlayerInCombat() then
+                shownThisCombat = true
+                ShowCastModel()
+            end
+        end)
+    end
+end
+
+-- 离开战斗时重置标记；不监听“进入战斗”，避免把刚补上的起手展示又清掉
 local combatResetFrame = CreateFrame("Frame")
-combatResetFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- 进入战斗
-combatResetFrame:RegisterEvent("PLAYER_REGEN_ENABLED")  -- 离开战斗
+combatResetFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatResetFrame:SetScript("OnEvent", function()
     shownThisCombat = false
 end)
 
-castEventFrame:SetScript("OnEvent", function(_, event, unit)
+castEventFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID)
     if unit and unit ~= "player" then return end
 
     if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
-        -- 只在进入战斗后的第一次施法时展示
-        if UnitAffectingCombat("player") and not shownThisCombat then
-            shownThisCombat = true
-            ShowCastModel()
-        end
+        MaybeSuppressSpotlight(spellID)
+        TryShowFirstCombatCast()
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- 瞬发技能可能没有 START：第一次施法成功时也触发一次
-        if UnitAffectingCombat("player") and not shownThisCombat then
-            shownThisCombat = true
-            ShowCastModel()
-        end
-        HideCastModelSoon(1.0)
+        MaybeSuppressSpotlight(spellID)
+        TryShowFirstCombatCast()
+        HideCastModelSoon(2.5)
     else
-        -- 结束/打断总是收起，避免模型卡住
-        HideCastModelSoon(0.9)
+        -- 施法被中断/失败时清掉待用的高光抑制
+        AP_SuppressSpotlightSpell = nil
+        AP_SuppressSpotlightAt = nil
+        -- 结束/打断后多留一会儿，方便看清动作
+        HideCastModelSoon(1.5)
     end
 end)
 
@@ -1365,12 +1436,6 @@ local function ApplyTheme(themeID)
     end
     for _, value in pairs(statValues) do
         value:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
-    end
-
-    -- 3D 正面形象窗口
-    if modelFrame then
-        modelFrame:SetBackdropColor(bodyBg[1], bodyBg[2], bodyBg[3], bodyBg[4])
-        modelFrame:SetBackdropBorderColor(t.frameBorder[1], t.frameBorder[2], t.frameBorder[3], 1)
     end
 
     -- 图标按钮
