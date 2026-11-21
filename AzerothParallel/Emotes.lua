@@ -25,9 +25,10 @@ local BTN_SIZE = 44   -- 图标大小
 local BTN_GAP = 6     -- 图标间距
 local PAD = 14        -- 面板内边距
 local GLOBAL_CD = 1.5 -- 点一次后所有按钮冷却几秒，防止刷屏
-local PANEL_TITLE = "表情与动作"
+local PANEL_TITLE = "表情动作"
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CUSTOM_COUNT = 2 -- 末尾固定保留两个「自定义」按钮（内容在设定页里填）
+local RP_PREFIX = "【RP】" -- 所有「说出来」的话前面都会带上这个标记
 
 -- ---------- 预设话术（「要说的话」里可选的内容，想加就往里添） ----------
 local PHRASES = {
@@ -43,6 +44,18 @@ local PHRASES = {
     "要不要一起去酒馆坐坐？",
     "听说最近的悬赏很丰厚。",
     "别惹我，我今天心情不太好。",
+    "愿风指引你的道路。",
+    "今晚的酒馆，我请。",
+    "这附近有什么值得一听的传闻吗？",
+    "我的行囊里还留着半块面包。",
+    "你看起来需要一位同伴。",
+    "荒野在呼唤，我该出发了。",
+    "别把后背交给陌生人——除非那个人是我。",
+    "月升之时，我通常不在城里。",
+    "记住今天的风，它明天就不会一样了。",
+    "如果你听见狼嚎，别回头。",
+    "故事讲到这里，剩下的要用脚去走。",
+    "有事就来营地找我。",
 }
 
 -- ---------- 基础动作列表（固定 8 个） ----------
@@ -107,7 +120,7 @@ local CUSTOM_ICONS = {
     "Interface\\Icons\\INV_Misc_Note_03",
 }
 
--- ---------- 卡片配色主题（经典 / 烈焰 / 月光 / 森林 / 幽暗） ----------
+-- ---------- 卡片配色主题（经典 / 烈焰 / 月光 / 森林 / 幽暗 / 任务） ----------
 -- border       = 标题、名牌、话术列表、按钮悬停的强调色
 -- frameBorder  = 表情面板和属性条外框的边框色
 -- panelBg      = 标题牌/名牌的背景色
@@ -144,8 +157,22 @@ local THEMES = {
         panelBg = { 0.09, 0.05, 0.14 }, accent = { 0.82, 0.62, 1.00 },
         buttonBorder = { 0.32, 0.24, 0.44 },
     },
+    quest = {
+        name = "任务",
+        -- 原版任务面板的羊皮纸色，整体调亮一档；文字用深棕色保证对比
+        border = { 0.55, 0.40, 0.20 }, frameBorder = { 0.45, 0.32, 0.16 },
+        panelBg = { 0.95, 0.87, 0.69 }, accent = { 0.30, 0.20, 0.08 },
+        buttonBorder = { 0.52, 0.40, 0.22 },
+        bodyBg = { 0.89, 0.79, 0.60, 0.98 },
+        buttonBg = { 0.30, 0.22, 0.12, 0.85 },
+        muted = { 0.44, 0.34, 0.22 },
+        pickerBg = { 0.92, 0.83, 0.65, 0.99 },
+        pickerRowBg = { 0.97, 0.90, 0.73, 0.92 },
+        pickerText = { 0.28, 0.19, 0.09 },
+        light = true,
+    },
 }
-local THEME_ORDER = { "classic", "flame", "moonlight", "forest", "shadow" }
+local THEME_ORDER = { "classic", "flame", "moonlight", "forest", "shadow", "quest" }
 local currentTheme = THEMES.classic
 
 -- 读取（必要时先建立）第 i 个自定义槽的存档。
@@ -178,7 +205,7 @@ local function GetEntries()
                 desc = "说：" .. cfg.text
             end
         else
-            desc = "还没有设置内容，请到「设定 → 表情与动作」里填写。"
+            desc = "还没有设置内容，请到「设定 → 表情动作」里填写。"
         end
 
         list[#list + 1] = {
@@ -233,7 +260,7 @@ local function Perform(entry)
         if entry.text:sub(1, 1) == "/" then
             RunSlashText(entry.text)
         else
-            SendChatMessage(entry.text, "SAY")
+            SendChatMessage(RP_PREFIX .. entry.text, "SAY")
         end
     elseif entry.lines and #entry.lines > 0 then
         -- 兜底：随机挑一句，并且不和上一句重复（「要说的话」实际走的是选择列表）
@@ -241,7 +268,10 @@ local function Perform(entry)
         local i = math.random(n)
         if n > 1 and i == entry.lastIndex then i = (i % n) + 1 end
         entry.lastIndex = i
-        SendChatMessage(entry.lines[i], entry.channel or "SAY")
+        local channel = entry.channel or "SAY"
+        local text = entry.lines[i]
+        if channel == "SAY" then text = RP_PREFIX .. text end
+        SendChatMessage(text, channel)
     end
 end
 
@@ -297,6 +327,7 @@ local function RestorePosition()
     end
 end
 RestorePosition()
+UI.RestorePosition = RestorePosition
 
 -- 存档可能在文件执行完之后才注入，启动时读到的位置可能是空的；
 -- 登录完成后再恢复一次，避免每次都回到默认位置。
@@ -334,7 +365,7 @@ frame:SetScript("OnDragStop", StopAndSavePosition)
 
 -- 顶部标题牌（压在上边框上，和截图里一样）
 local title = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-title:SetSize(gridW + PAD * 2 - 36, 26)
+title:SetSize(gridW + PAD * 2 - 36, 30)
 title:SetPoint("TOP", frame, "TOP", 0, 12)
 title:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -347,7 +378,10 @@ title:SetBackdropBorderColor(0.9, 0.72, 0.28, 1)
 local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 titleText:SetPoint("CENTER", 0, 0)
 titleText:SetText(PANEL_TITLE)
-titleText:SetFont(titleText:GetFont(), 15, "OUTLINE")
+-- 和名字一样的柔化处理：无硬描边 + 投影
+titleText:SetFont(titleText:GetFont(), 19, "")
+titleText:SetShadowColor(0, 0, 0, 0.9)
+titleText:SetShadowOffset(1, -1)
 titleText:SetTextColor(1, 0.85, 0.3)
 MakeDragHandle(title)
 
@@ -358,7 +392,7 @@ MakeDragHandle(title)
 -- ==========================================
 -- 名牌挂在 card 上（而不是 frame 上）：点 × 关掉表情面板时，它会继续显示
 local nameplate = CreateFrame("Frame", nil, card, "BackdropTemplate")
-nameplate:SetSize(FRAME_W, 54)
+nameplate:SetSize(FRAME_W, 88) -- 比原来高一点，给姓名下方的小图标留一行
 -- 向上抬高：先给下面的属性条留出位置（属性条高 50 + 间隔 6）
 nameplate:SetPoint("BOTTOM", card, "TOP", 0, 78)
 nameplate:SetClampedToScreen(true)
@@ -376,14 +410,17 @@ local plateName = nameplate:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 plateName:SetPoint("TOP", nameplate, "TOP", 0, -9)
 plateName:SetWidth(FRAME_W - 16)
 plateName:SetJustifyH("CENTER")
-plateName:SetFont(plateName:GetFont(), 18, "OUTLINE")
+-- 名字不用硬描边：放大一点 + 投影，视觉上更粗、更柔和（略带糊感）
+plateName:SetFont(plateName:GetFont(), 22, "")
+plateName:SetShadowColor(0, 0, 0, 0.9)
+plateName:SetShadowOffset(1, -1)
 plateName:SetTextColor(1, 0.85, 0.3)
 
 local plateFaction = nameplate:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 plateFaction:SetPoint("TOP", plateName, "BOTTOM", 0, -1)
 plateFaction:SetWidth(FRAME_W - 16)
 plateFaction:SetJustifyH("CENTER")
-plateFaction:SetFont(plateFaction:GetFont(), 13, "")
+plateFaction:SetFont(plateFaction:GetFont(), 15, "")
 
 -- 从职业流派模块（Data.lua / Flavor.lua）读取当前角色的数据。
 -- 注意：Emotes.lua 比 Data.lua 先加载，所以这里只能等到「打开面板时」再读，
@@ -423,6 +460,11 @@ local function UpdateNameplate()
     if not factionName then factionName = "冒险者" end
     if not color then color = { r = 1, g = 0.85, b = 0.3 } end
 
+    -- 浅色主题（任务羊皮纸）下把流派颜色压暗一点，保证在亮背景上看得清
+    if currentTheme.light then
+        color = { r = color.r * 0.55, g = color.g * 0.55, b = color.b * 0.55 }
+    end
+
     plateName:SetText(rpName)
     plateFaction:SetText("<" .. factionName .. ">")
     plateFaction:SetTextColor(color.r, color.g, color.b)
@@ -430,6 +472,271 @@ end
 
 -- 每次面板显示时都刷新一遍：在职业流派页改名或转投后，下次打开就是新的
 frame:HookScript("OnShow", UpdateNameplate)
+
+-- ==========================================
+-- 卡片正上方的浮动提示（声望 / 熟练度提升）
+-- 位置固定在名牌顶部上方约两行处。
+-- ==========================================
+local NOTIFY_W = 420
+local notifyFrame = CreateFrame("Frame", nil, card)
+notifyFrame:SetSize(NOTIFY_W, 24)
+notifyFrame:SetPoint("BOTTOM", nameplate, "TOP", 0, 34)
+
+local notifyText = notifyFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+notifyText:SetPoint("CENTER")
+notifyText:SetWidth(NOTIFY_W)
+notifyText:SetJustifyH("CENTER")
+notifyText:SetFont(notifyText:GetFont(), 16, "")
+notifyText:SetShadowColor(0, 0, 0, 0.9)
+notifyText:SetShadowOffset(1, -1)
+notifyText:SetAlpha(0)
+
+local notifyToken = 0
+function UI.Notify(text, r, g, b)
+    if not text or text == "" then return end
+
+    -- 卡片没显示时退回屏幕中央提示，避免消息丢失
+    if not card:IsShown() then
+        UIErrorsFrame:AddMessage(text, r or 1, g or 1, b or 1, 1)
+        return
+    end
+
+    notifyToken = notifyToken + 1
+    local token = notifyToken
+    notifyText:SetText(text)
+    notifyText:SetTextColor(r or 1, g or 1, b or 1)
+    notifyText:SetAlpha(1)
+
+    -- 3.5 秒后淡出；期间来了新消息就以新消息为准
+    if C_Timer and C_Timer.After then
+        C_Timer.After(3.5, function()
+            if notifyToken == token then notifyText:SetAlpha(0) end
+        end)
+    end
+end
+
+-- ==========================================
+-- 正面形象：姓名卡片上方的 3D 实时模型
+-- 注意：PlayerModel 的镜头会随窗口高度一起放大，单纯加高只会把脸放得更大、
+-- 并不会显示更多身体，所以这里用屏幕内放得下的高度，改为把镜头拉远。
+-- ==========================================
+local MODEL_W = 720 -- 宽度再放大 0.5 倍（480 → 720）
+local MODEL_H = 660 -- 再高一点，方便 Shift 拖到合适位置
+local modelFrame = CreateFrame("Frame", nil, card, "BackdropTemplate")
+modelFrame:SetSize(MODEL_W, MODEL_H)
+modelFrame:SetFrameStrata("HIGH")
+modelFrame:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    edgeSize = 12,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+})
+modelFrame:SetBackdropColor(0.07, 0.07, 0.08, 0.96)
+modelFrame:SetBackdropBorderColor(0.5, 0.5, 0.55, 1)
+modelFrame:Hide()
+
+-- 模型窗口位置存档：Shift 拖动后保存，重载/重新登录后恢复
+local function SaveModelPosition()
+    local point, relativeTo, relPoint, x, y = modelFrame:GetPoint()
+    if not point then return end
+    -- relativeTo 为 nil 时表示相对父级（卡片）
+    local relName = "UIParent"
+    if relativeTo == card or relativeTo == nil then relName = "card" end
+    EnsureEmoteDB().modelPos = { point, relName, relPoint, x, y }
+end
+
+local function RestoreModelPosition()
+    local pos = EnsureEmoteDB().modelPos
+    modelFrame:ClearAllPoints()
+    if pos and pos[1] then
+        local anchor = (pos[2] == "card") and card or UIParent
+        modelFrame:SetPoint(pos[1], anchor, pos[3], pos[4], pos[5])
+    else
+        modelFrame:SetPoint("BOTTOM", nameplate, "TOP", 0, 8)
+    end
+end
+UI.RestoreModelPosition = RestoreModelPosition
+RestoreModelPosition()
+
+-- 模型窗口自己可以按住 Shift 拖动，不再带着整张卡片一起跑
+modelFrame:EnableMouse(true)
+modelFrame:SetMovable(true)
+modelFrame:RegisterForDrag("LeftButton")
+modelFrame:SetScript("OnDragStart", function(self)
+    if IsShiftKeyDown() then self:StartMoving() end
+end)
+modelFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    SaveModelPosition()
+end)
+
+-- 提示条要盖在模型窗口上方，避免被高窗口挡住
+notifyFrame:SetFrameLevel(modelFrame:GetFrameLevel() + 5)
+
+local playerModel = CreateFrame("PlayerModel", "AP_FrontModel", modelFrame)
+playerModel:SetPoint("TOPLEFT", 6, -6)
+playerModel:SetPoint("BOTTOMRIGHT", -6, 6)
+playerModel:SetFrameLevel(modelFrame:GetFrameLevel() + 1)
+
+-- 施法动作 ID 各客户端不完全一样：按优先级找一个模型确实拥有的
+local castAnimID
+local CAST_ANIM_CANDIDATES = { 53, 54, 32, 31, 11 }
+local function FindCastAnim()
+    castAnimID = nil
+    if not playerModel.HasAnimation then return end
+    for _, id in ipairs(CAST_ANIM_CANDIDATES) do
+        local ok, has = pcall(playerModel.HasAnimation, playerModel, id)
+        if ok and has then
+            castAnimID = id
+            return
+        end
+    end
+end
+
+
+local function RefreshModelUnit()
+    pcall(playerModel.SetUnit, playerModel, "player")
+    pcall(playerModel.SetRotation, playerModel, 0) -- 0 = 正面朝向镜头
+
+    -- 脸部 + 上半身（1 = 脸部特写，数值越小视野越宽）
+    -- 0.72：人物再放大一点
+    local okZoom = pcall(playerModel.SetPortraitZoom, playerModel, 0.72)
+    if not okZoom then
+        -- 老客户端没有 SetPortraitZoom 时退回脸部镜头
+        pcall(playerModel.SetCamera, playerModel, 0)
+    end
+
+    FindCastAnim()
+end
+
+-- 模型已经独立到屏幕顶部，提示条固定回到名牌上方
+local function UpdateNotifyAnchor()
+    notifyFrame:ClearAllPoints()
+    notifyFrame:SetPoint("BOTTOM", nameplate, "TOP", 0, 34)
+end
+
+local modelHideToken = 0
+
+function UI.RefreshModel()
+    -- 不再常驻显示：只有施法时临时出现；关闭开关时立刻收起
+    if not EnsureEmoteDB().showModel then
+        modelHideToken = modelHideToken + 1
+        modelFrame:Hide()
+        UpdateNotifyAnchor()
+    end
+end
+
+-- 卡片收起时，模型也一起收起
+card:HookScript("OnHide", function()
+    modelHideToken = modelHideToken + 1
+    modelFrame:Hide()
+end)
+
+-- 换装备 / 变形后刷新模型
+local modelEventFrame = CreateFrame("Frame")
+modelEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+if modelEventFrame.RegisterUnitEvent then
+    modelEventFrame:RegisterUnitEvent("UNIT_MODEL_CHANGED", "player")
+else
+    modelEventFrame:RegisterEvent("UNIT_MODEL_CHANGED")
+end
+modelEventFrame:SetScript("OnEvent", function()
+    if modelFrame:IsShown() then RefreshModelUnit() end
+end)
+
+-- 施法时让模型做施法动作，结束 / 打断后回到站立
+local castEventFrame = CreateFrame("Frame")
+local CAST_EVENTS = {
+    "UNIT_SPELLCAST_START",
+    "UNIT_SPELLCAST_CHANNEL_START",
+    "UNIT_SPELLCAST_SUCCEEDED",
+    "UNIT_SPELLCAST_STOP",
+    "UNIT_SPELLCAST_CHANNEL_STOP",
+    "UNIT_SPELLCAST_FAILED",
+    "UNIT_SPELLCAST_INTERRUPTED",
+}
+for _, eventName in ipairs(CAST_EVENTS) do
+    if castEventFrame.RegisterUnitEvent then
+        castEventFrame:RegisterUnitEvent(eventName, "player")
+    else
+        castEventFrame:RegisterEvent(eventName)
+    end
+end
+-- 施法时临时显示；结束/打断后过一小会儿自动收起
+local function ShowCastModel()
+    if not EnsureEmoteDB().showModel or not card:IsShown() then return end
+
+    modelHideToken = modelHideToken + 1
+    local wasHidden = not modelFrame:IsShown()
+    modelFrame:Show()
+
+    -- 只在从隐藏变为显示时重建模型，避免每次施法都重新加载，减少卡顿
+    if wasHidden then
+        RefreshModelUnit()
+    end
+
+    -- 使用模型自带的通用施法动作
+    if castAnimID then
+        pcall(playerModel.SetAnimation, playerModel, castAnimID)
+    end
+    UpdateNotifyAnchor()
+end
+
+local function HideCastModelSoon(delay)
+    modelHideToken = modelHideToken + 1
+    local token = modelHideToken
+    local function HideNow()
+        if modelHideToken ~= token then return end
+
+        -- 按住 Shift 调整窗口位置时先不收起，松手后再自动隐藏
+        if IsShiftKeyDown() and C_Timer and C_Timer.After then
+            C_Timer.After(1.0, HideNow)
+            return
+        end
+
+        modelFrame:Hide()
+        UpdateNotifyAnchor()
+    end
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(delay or 0.9, HideNow)
+    else
+        HideNow()
+    end
+end
+
+-- 每次进入战斗只展示一次：记录本次战斗里是否已经触发过
+local shownThisCombat = false
+
+-- 进入 / 离开战斗时重置标记
+local combatResetFrame = CreateFrame("Frame")
+combatResetFrame:RegisterEvent("PLAYER_REGEN_DISABLED") -- 进入战斗
+combatResetFrame:RegisterEvent("PLAYER_REGEN_ENABLED")  -- 离开战斗
+combatResetFrame:SetScript("OnEvent", function()
+    shownThisCombat = false
+end)
+
+castEventFrame:SetScript("OnEvent", function(_, event, unit)
+    if unit and unit ~= "player" then return end
+
+    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
+        -- 只在进入战斗后的第一次施法时展示
+        if UnitAffectingCombat("player") and not shownThisCombat then
+            shownThisCombat = true
+            ShowCastModel()
+        end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- 瞬发技能可能没有 START：第一次施法成功时也触发一次
+        if UnitAffectingCombat("player") and not shownThisCombat then
+            shownThisCombat = true
+            ShowCastModel()
+        end
+        HideCastModelSoon(1.0)
+    else
+        -- 结束/打断总是收起，避免模型卡住
+        HideCastModelSoon(0.9)
+    end
+end)
 
 -- ==========================================
 -- 属性条：力量 / 敏捷 / 智力 / 精神 / 回蓝 / 护甲 / 耐久
@@ -450,38 +757,40 @@ statsBar:SetBackdropColor(0.07, 0.07, 0.08, 0.96)
 statsBar:SetBackdropBorderColor(0.5, 0.5, 0.55, 1)
 MakeDragHandle(statsBar)
 
--- 新客户端会把部分数值标记成 secret（不能读取、比较或运算）。
--- 这里统一过滤：拿不到就显示「—」，避免刷报错。
-local function SafeNum(value)
-    if value == nil then return nil end
-    if type(issecretvalue) == "function" then
-        local ok, secret = pcall(issecretvalue, value)
-        if ok and secret then return nil end
-    end
+-- 12.0 起，战斗中的 UnitStat / UnitArmor 等会返回 secret 值：
+-- 不能比较、不能做数学运算，但可以直接交给 FontString:SetText 显示。
+-- 策略：能安全显示就显示实时值；显示不了就退回上一次非战斗时读到的值。
+local function IsSecretValue(value)
+    if type(issecretvalue) ~= "function" then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret
+end
+
+-- 返回：普通数值 / isSecret 布尔 / secret 原值（原值不做任何运算）
+local function ReadStat(index)
+    local ok, value = pcall(UnitStat, "player", index)
+    if not ok then return nil end
+    if IsSecretValue(value) then return nil, true, value end
     if type(value) ~= "number" then return nil end
     return value
 end
 
-local function ReadStat(index)
-    local ok, value = pcall(UnitStat, "player", index)
-    if not ok then return nil end
-    return SafeNum(value)
-end
-
--- 已装备物品的耐久度平均值（戒指、饰品这类没有耐久的会自动跳过）
+-- 已装备物品的耐久度平均值（戒指、饰品这类没有耐久的会自动跳过）。
+-- 只要有一件读不到（secret），就整体退回缓存值，避免算出错误百分比。
 local function GetDurabilityPercent()
-    local total, count = 0, 0
+    local total, count, blocked = 0, 0, false
     for slot = 1, 19 do
         local ok, cur, max = pcall(GetInventoryItemDurability, slot)
         if ok then
-            cur, max = SafeNum(cur), SafeNum(max)
-            if cur and max and max > 0 then
+            if IsSecretValue(cur) or IsSecretValue(max) then
+                blocked = true
+            elseif type(cur) == "number" and type(max) == "number" and max > 0 then
                 total = total + (cur / max)
                 count = count + 1
             end
         end
     end
-    if count == 0 then return nil end
+    if blocked or count == 0 then return nil end
     return total / count * 100
 end
 
@@ -497,6 +806,7 @@ local STAT_DEFS = {
 }
 
 local statValues = {}
+local statLabels = {}
 local STAT_INNER = 4
 local statCellW = (FRAME_W - STAT_INNER * 2) / #STAT_DEFS
 
@@ -509,15 +819,20 @@ for i, def in ipairs(STAT_DEFS) do
     label:SetPoint("TOP", cell, "TOP", 0, 0)
     label:SetWidth(statCellW - 2)
     label:SetJustifyH("CENTER")
-    label:SetFont(label:GetFont(), 11, "")
+    label:SetFont(label:GetFont(), 13, "")
+    label:SetShadowColor(0, 0, 0, 0.75)
+    label:SetShadowOffset(1, -1)
     label:SetTextColor(0.65, 0.65, 0.7)
     label:SetText(def.label)
+    statLabels[def.key] = label
 
     local value = cell:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     value:SetPoint("TOP", label, "BOTTOM", 0, -3)
     value:SetWidth(statCellW - 2)
     value:SetJustifyH("CENTER")
-    value:SetFont(value:GetFont(), 12, "OUTLINE")
+    value:SetFont(value:GetFont(), 13, "")
+    value:SetShadowColor(0, 0, 0, 0.85)
+    value:SetShadowOffset(1, -1)
     value:SetTextColor(1, 0.9, 0.6)
     value:SetText("—")
     statValues[def.key] = value
@@ -544,33 +859,106 @@ for i, def in ipairs(STAT_DEFS) do
     MakeDragHandle(cell)
 end
 
-local function UpdateStats()
-    local function Int(value)
-        if not value then return "—" end
-        return tostring(math.floor(value + 0.5))
+-- 上一次在非战斗时读到的值，战斗中被 secret 挡住时拿来顶上
+local statCache = {}
+
+-- 尝试直接显示 secret 数值：只做格式化和 SetText，不做比较/运算
+local function TryShowSecret(fontString, raw, fmt)
+    if fmt then
+        local okFmt, text = pcall(string.format, fmt, raw)
+        if okFmt then
+            if pcall(fontString.SetText, fontString, text) then return true end
+        end
+    end
+    -- 数字直接交给 SetText，让客户端自己转换
+    return pcall(fontString.SetText, fontString, raw)
+end
+
+-- value = 普通数值；isSecret = true 时 value 为 nil、raw 是 secret 原值
+local function ShowStat(key, value, isSecret, raw, fmt)
+    local fs = statValues[key]
+
+    if isSecret then
+        if TryShowSecret(fs, raw, fmt) then return end
+        fs:SetText(statCache[key] or "—")
+        return
     end
 
-    statValues.str:SetText(Int(ReadStat(1)))
-    statValues.agi:SetText(Int(ReadStat(2)))
-    statValues.int:SetText(Int(ReadStat(4)))
-    statValues.spi:SetText(Int(ReadStat(5)))
+    if value ~= nil then
+        local text
+        if fmt then
+            text = string.format(fmt, value)
+        else
+            text = tostring(math.floor(value + 0.5))
+        end
+        statCache[key] = text
+        fs:SetText(text)
+    else
+        fs:SetText(statCache[key] or "—")
+    end
+end
+
+local function UpdateStats()
+    -- 力量 / 敏捷 / 智力 / 精神
+    local v, isSecret, raw = ReadStat(1)
+    ShowStat("str", v, isSecret, raw)
+    v, isSecret, raw = ReadStat(2)
+    ShowStat("agi", v, isSecret, raw)
+    v, isSecret, raw = ReadStat(4)
+    ShowStat("int", v, isSecret, raw)
+    v, isSecret, raw = ReadStat(5)
+    ShowStat("spi", v, isSecret, raw)
 
     -- 回蓝：GetManaRegen 返回每秒回复量，保留一位小数
     local okRegen, regen = pcall(GetManaRegen)
-    regen = okRegen and SafeNum(regen) or nil
-    statValues.mana:SetText(regen and string.format("%.1f", regen) or "—")
+    local regenValue, regenIsSecret, regenRaw
+    if okRegen then
+        if IsSecretValue(regen) then
+            regenIsSecret, regenRaw = true, regen
+        elseif type(regen) == "number" then
+            regenValue = regen
+        end
+    end
+    ShowStat("mana", regenValue, regenIsSecret, regenRaw, "%.1f")
 
     -- 护甲：UnitArmor 的第二个返回值是当前有效护甲
     local okArmor, baseArmor, effectiveArmor = pcall(UnitArmor, "player")
-    local armor = okArmor and SafeNum(effectiveArmor or baseArmor) or nil
-    statValues.armor:SetText(Int(armor))
+    local armorValue, armorIsSecret, armorRaw
+    if okArmor then
+        if IsSecretValue(effectiveArmor) then
+            armorIsSecret, armorRaw = true, effectiveArmor
+        elseif type(effectiveArmor) == "number" then
+            armorValue = effectiveArmor
+        elseif IsSecretValue(baseArmor) then
+            armorIsSecret, armorRaw = true, baseArmor
+        elseif type(baseArmor) == "number" then
+            armorValue = baseArmor
+        end
+    end
+    ShowStat("armor", armorValue, armorIsSecret, armorRaw)
 
+    -- 耐久：只认正常数值，读不到就用上次缓存
     local dura = GetDurabilityPercent()
-    statValues.dura:SetText(dura and string.format("%.0f%%", dura) or "—")
+    if dura then
+        local text = string.format("%.0f%%", dura)
+        statCache.dura = text
+        statValues.dura:SetText(text)
+    else
+        statValues.dura:SetText(statCache.dura or "—")
+    end
 end
 
 -- 面板每次显示时立刻刷新
 frame:HookScript("OnShow", UpdateStats)
+
+-- 登录时先读一遍：趁通常还在非战斗状态，把数值缓存起来，
+-- 这样第一次战斗中打开面板也不会是「—」。
+local statsLogin = CreateFrame("Frame")
+statsLogin:RegisterEvent("PLAYER_LOGIN")
+statsLogin:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_LOGIN")
+    UpdateStats()
+end)
 
 -- 面板开着的时候每秒刷新一次：换装备、上 buff、掉耐久都能及时反映
 local statElapsed = 0
@@ -581,6 +969,105 @@ statsBar:SetScript("OnUpdate", function(_, elapsed)
     UpdateStats()
     UpdateNameplate() -- 表情面板关掉后名牌仍在，这里顺带保持名字/流派实时
 end)
+
+-- ==========================================
+-- 姓名下方的小图标：属性 / 表情 / 技能熟练度 / 主界面
+-- ==========================================
+local MINI_SIZE = 22
+local MINI_GAP = 6
+local miniRow = CreateFrame("Frame", nil, nameplate)
+miniRow:SetSize(MINI_SIZE * 5 + MINI_GAP * 4, MINI_SIZE)
+miniRow:SetPoint("TOP", plateFaction, "BOTTOM", 0, -4)
+
+local function MakeMiniButton(index, icon, tooltipText, onClick)
+    local btn = CreateFrame("Button", nil, miniRow, "BackdropTemplate")
+    btn:SetSize(MINI_SIZE, MINI_SIZE)
+    btn:SetPoint("LEFT", miniRow, "LEFT", (index - 1) * (MINI_SIZE + MINI_GAP), 0)
+    btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+    btn:SetBackdropColor(0, 0, 0, 0.55)
+
+    local tex = btn:CreateTexture(nil, "ARTWORK")
+    tex:SetPoint("TOPLEFT", 2, -2)
+    tex:SetPoint("BOTTOMRIGHT", -2, 2)
+    tex:SetTexture(icon)
+    tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+    btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+
+    btn:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(currentTheme.border[1], currentTheme.border[2], currentTheme.border[3], 0.35)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(tooltipText, 1, 0.85, 0.3)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(0, 0, 0, 0.55)
+        GameTooltip:Hide()
+    end)
+    btn:SetScript("OnClick", onClick)
+
+    return btn
+end
+
+-- 1) 正面形象：直接打开「设定 → 正面形象」页
+-- 图标用玩家自己的职业图标，避免之前的人头/骨灰感
+local portraitIcon = "Interface\\Icons\\INV_Misc_QuestionMark"
+local okClass, _, classToken = pcall(UnitClass, "player")
+if okClass and classToken then
+    portraitIcon = "Interface\\Icons\\ClassIcon_" .. classToken
+end
+MakeMiniButton(1, portraitIcon,
+    "正面形象：打开设定页", function()
+        UI.OpenModelSettings()
+    end)
+
+-- 2) 属性：显示 / 隐藏下面的属性条
+MakeMiniButton(2, "Interface\\Icons\\Spell_Nature_Strength",
+    "属性：显示 / 隐藏属性条", function(self)
+        local show = not statsBar:IsShown()
+        statsBar:SetShown(show)
+        self:SetAlpha(show and 1 or 0.5)
+    end)
+
+-- 3) 表情：显示 / 隐藏表情图标面板（和右上角 × 对应）
+local emoteIcon = MakeMiniButton(3, "Interface\\Icons\\INV_Misc_Balloon_01",
+    "表情：显示 / 隐藏表情面板", function()
+        if frame:IsShown() then
+            frame:Hide()
+        else
+            frame:Show()
+        end
+    end)
+
+-- 4) 技能熟练度：直接打开「职业流派 → 称谓典籍」页（卡片保持显示，不隐藏）
+MakeMiniButton(4, "Interface\\Icons\\INV_Sword_04",
+    "技能熟练度：打开称谓典籍", function()
+        if AP_FlavorUI and AP_FlavorUI.OpenSkillBook then
+            AP_FlavorUI.OpenSkillBook()
+        elseif AP_MainFrame then
+            AP_MainFrame:Show()
+        end
+    end)
+
+-- 5) 主界面：打开 / 关闭 /AP 面板；打开时固定切到「设定」页
+MakeMiniButton(5, "Interface\\Icons\\INV_Misc_Book_09",
+    "主界面：打开 / 关闭 /AP 面板（默认设定页）", function()
+        if AP_MainFrame then
+            if AP_MainFrame:IsShown() then
+                AP_MainFrame:Hide()
+            else
+                AP_MainFrame:Show()
+                -- 不沿用上次停留的页，固定打开第 1 页「设定」
+                if AP_Tabs and AP_Tabs[1] and AP_Tabs[1].Click then
+                    AP_Tabs[1]:Click()
+                end
+            end
+        end
+    end)
+
+-- 表情面板被 × 关掉时，把「表情」小图标调暗，提示当前是关闭状态
+frame:HookScript("OnShow", function() emoteIcon:SetAlpha(1) end)
+frame:HookScript("OnHide", function() emoteIcon:SetAlpha(0.5) end)
 
 -- 关闭按钮（右上角小叉）
 local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
@@ -698,7 +1185,7 @@ for i = 1, #initialEntries do
         -- 自定义按钮但还没填内容：提示去哪儿设置，不进入冷却
         if now.customSlot and (not now.text or now.text == "") then
             print("|cffffd700[AP]|r 自定义 " .. now.customSlot ..
-                " 还没有内容，请打开 /AP →「设定」→「表情与动作」填写。")
+                " 还没有内容，请打开 /AP →「设定」→「表情动作」填写。")
             return
         end
 
@@ -713,11 +1200,13 @@ end
 -- 「要说的话」选择列表（点第 2 个按钮时弹出）
 -- ==========================================
 local PICKER_W = 360
-local PICKER_ROW_H = 24
-local PICKER_LIST_TOP = 44 -- 顶部标题占掉的高度
+local PICKER_ROW_H = 26
+local PICKER_LIST_TOP = 46 -- 顶部标题占掉的高度
+local PICKER_MAX_ROWS = 9 -- 一屏最多显示几句，多出来的滚动查看
+local PICKER_H = PICKER_LIST_TOP + PICKER_MAX_ROWS * PICKER_ROW_H + 10
 
 picker = CreateFrame("Frame", "AP_EmotePicker", frame, "BackdropTemplate")
-picker:SetSize(PICKER_W, 120)
+picker:SetSize(PICKER_W, PICKER_H)
 picker:SetFrameStrata("DIALOG")
 picker:SetClampedToScreen(true)
 picker:EnableMouse(true) -- 挡住点击，避免点穿到后面的面板
@@ -734,12 +1223,36 @@ picker:Hide()
 local pickerTitle = picker:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 pickerTitle:SetPoint("TOPLEFT", 12, -10)
 pickerTitle:SetText("要说的话")
-pickerTitle:SetFont(pickerTitle:GetFont(), 14, "OUTLINE")
+pickerTitle:SetFont(pickerTitle:GetFont(), 16, "OUTLINE")
 pickerTitle:SetTextColor(1, 0.85, 0.3)
 
 local pickerClose = CreateFrame("Button", nil, picker, "UIPanelCloseButton")
 pickerClose:SetPoint("TOPRIGHT", picker, "TOPRIGHT", 1, 1)
 pickerClose:SetScale(0.7)
+
+-- 话术可能很多，这里用滚动框：固定显示 PICKER_MAX_ROWS 行，其余滚动查看。
+local pickerScroll = CreateFrame("ScrollFrame", "AP_EmotePickerScroll", picker, "UIPanelScrollFrameTemplate")
+pickerScroll:SetPoint("TOPLEFT", picker, "TOPLEFT", 10, -PICKER_LIST_TOP)
+pickerScroll:SetPoint("BOTTOMRIGHT", picker, "BOTTOMRIGHT", -10, 10)
+pickerScroll:EnableMouseWheel(true)
+
+local pickerContent = CreateFrame("Frame", nil, pickerScroll)
+pickerContent:SetWidth(PICKER_W - 10 - 10 - 18) -- 右侧给滚动条留位置
+pickerContent:SetHeight(1)
+pickerScroll:SetScrollChild(pickerContent)
+
+local function PickerScrollBy(delta)
+    local maxScroll = pickerScroll:GetVerticalScrollRange()
+    local newScroll = pickerScroll:GetVerticalScroll() - delta * (PICKER_ROW_H * 2)
+    if newScroll < 0 then
+        newScroll = 0
+    elseif newScroll > maxScroll then
+        newScroll = maxScroll
+    end
+    pickerScroll:SetVerticalScroll(newScroll)
+end
+
+pickerScroll:SetScript("OnMouseWheel", function(_, delta) PickerScrollBy(delta) end)
 
 -- 列表里的每一行都是按钮，第一次用到时才创建，之后反复复用
 local pickerRows = {}
@@ -747,24 +1260,29 @@ local pickerRows = {}
 function UI.OpenPicker(entry)
     local lines = entry.lines or {}
 
-    -- 高度 = 顶部标题 + 每句一行 + 底部留白
-    picker:SetHeight(PICKER_LIST_TOP + #lines * PICKER_ROW_H + 10)
+    -- 内容总高度按句子数量算；超出一屏的部分靠滚动查看
+    pickerContent:SetHeight(math.max(#lines * PICKER_ROW_H, 1))
+    pickerScroll:SetVerticalScroll(0)
 
     for i = 1, #lines do
         local lineBtn = pickerRows[i]
         if not lineBtn then
-            lineBtn = CreateFrame("Button", nil, picker, "BackdropTemplate")
+            lineBtn = CreateFrame("Button", nil, pickerContent, "BackdropTemplate")
             lineBtn:SetHeight(PICKER_ROW_H - 2)
-            lineBtn:SetPoint("TOPLEFT", picker, "TOPLEFT", 10, -(PICKER_LIST_TOP + (i - 1) * PICKER_ROW_H))
-            lineBtn:SetPoint("TOPRIGHT", picker, "TOPRIGHT", -10, -(PICKER_LIST_TOP + (i - 1) * PICKER_ROW_H))
+            lineBtn:SetPoint("TOPLEFT", pickerContent, "TOPLEFT", 0, -(i - 1) * PICKER_ROW_H)
+            lineBtn:SetPoint("TOPRIGHT", pickerContent, "TOPRIGHT", 0, -(i - 1) * PICKER_ROW_H)
             lineBtn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
-            lineBtn:SetBackdropColor(0.12, 0.12, 0.14, 0.85)
+            local rowBg = currentTheme.pickerRowBg or { 0.12, 0.12, 0.14, 0.85 }
+            lineBtn:SetBackdropColor(rowBg[1], rowBg[2], rowBg[3], rowBg[4])
             lineBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 
             local text = lineBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             text:SetPoint("LEFT", 8, 0)
             text:SetPoint("RIGHT", lineBtn, "RIGHT", -8, 0)
             text:SetJustifyH("LEFT")
+            text:SetFont(text:GetFont(), 13, "")
+            local rowText = currentTheme.pickerText or { 1, 1, 1 }
+            text:SetTextColor(rowText[1], rowText[2], rowText[3])
             lineBtn.text = text
 
             -- 同一个按钮会被反复使用，所以点击时读 self.line，
@@ -772,6 +1290,10 @@ function UI.OpenPicker(entry)
             lineBtn:SetScript("OnClick", function(self)
                 if self.line then UI.PickLine(self.line) end
             end)
+
+            -- 鼠标停在句子上也能用滚轮翻列表
+            lineBtn:EnableMouseWheel(true)
+            lineBtn:SetScript("OnMouseWheel", function(_, delta) PickerScrollBy(delta) end)
 
             pickerRows[i] = lineBtn
         end
@@ -797,7 +1319,7 @@ end
 -- 选中后列表会立刻收起，也不存在连点刷屏的问题。
 function UI.PickLine(line)
     StartCooldown()
-    SendChatMessage(line, "SAY")
+    SendChatMessage(RP_PREFIX .. line, "SAY")
     picker:Hide()
 end
 
@@ -813,7 +1335,16 @@ local function ApplyTheme(themeID)
     local t = THEMES[themeID] or THEMES.classic
     currentTheme = t
 
-    -- 表情面板外框
+    -- 没有单独配的字段就用深色套装的默认值
+    local bodyBg = t.bodyBg or { 0.07, 0.07, 0.08, 0.96 }
+    local buttonBg = t.buttonBg or { 0, 0, 0, 1 }
+    local muted = t.muted or { 0.65, 0.65, 0.70 }
+    local pickerBg = t.pickerBg or { 0.07, 0.07, 0.08, 0.98 }
+    local pickerRowBg = t.pickerRowBg or { 0.12, 0.12, 0.14, 0.85 }
+    local pickerText = t.pickerText or { 1, 1, 1 }
+
+    -- 表情面板
+    frame:SetBackdropColor(bodyBg[1], bodyBg[2], bodyBg[3], bodyBg[4])
     frame:SetBackdropBorderColor(t.frameBorder[1], t.frameBorder[2], t.frameBorder[3], 1)
 
     -- 标题牌
@@ -827,19 +1358,40 @@ local function ApplyTheme(themeID)
     plateName:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
 
     -- 属性条
+    statsBar:SetBackdropColor(bodyBg[1], bodyBg[2], bodyBg[3], bodyBg[4])
     statsBar:SetBackdropBorderColor(t.frameBorder[1], t.frameBorder[2], t.frameBorder[3], 1)
+    for _, label in pairs(statLabels) do
+        label:SetTextColor(muted[1], muted[2], muted[3])
+    end
     for _, value in pairs(statValues) do
         value:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
     end
 
-    -- 图标按钮的普通边框
+    -- 3D 正面形象窗口
+    if modelFrame then
+        modelFrame:SetBackdropColor(bodyBg[1], bodyBg[2], bodyBg[3], bodyBg[4])
+        modelFrame:SetBackdropBorderColor(t.frameBorder[1], t.frameBorder[2], t.frameBorder[3], 1)
+    end
+
+    -- 图标按钮
     for _, btn in ipairs(buttons) do
+        btn:SetBackdropColor(buttonBg[1], buttonBg[2], buttonBg[3], buttonBg[4])
         btn:SetBackdropBorderColor(t.buttonBorder[1], t.buttonBorder[2], t.buttonBorder[3], 1)
     end
 
     -- 话术列表
+    picker:SetBackdropColor(pickerBg[1], pickerBg[2], pickerBg[3], pickerBg[4])
     picker:SetBackdropBorderColor(t.border[1], t.border[2], t.border[3], 1)
     pickerTitle:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
+    for _, row in ipairs(pickerRows) do
+        row:SetBackdropColor(pickerRowBg[1], pickerRowBg[2], pickerRowBg[3], pickerRowBg[4])
+        if row.text then
+            row.text:SetTextColor(pickerText[1], pickerText[2], pickerText[3])
+        end
+    end
+
+    -- 浅色主题下流派颜色要重新压暗，立即刷一下名牌
+    UpdateNameplate()
 end
 UI.ApplyTheme = ApplyTheme
 
@@ -862,6 +1414,17 @@ function UI.Show()
     UpdateStats()
     frame:Show()
     card:Show()
+    UI.RefreshModel()
+end
+
+-- 从卡片图标直接打开「设定 → 正面形象」页
+function UI.OpenModelSettings()
+    if AP_CloseDanmakuSettings then AP_CloseDanmakuSettings() end
+    if AP_MainFrame then AP_MainFrame:Show() end
+    if AP_Tabs and AP_Tabs[1] and AP_Tabs[1].Click then
+        AP_Tabs[1]:Click() -- 切到「设定」
+    end
+    if AP_SelectSettingsTab then AP_SelectSettingsTab("model") end
 end
 
 function UI.Hide()
@@ -892,17 +1455,23 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     entryBtn:SetSize(200, 36)
     -- 聊天弹幕的入口按钮在 CENTER (0, 40)，这里紧挨着放在下方
     entryBtn:SetPoint("CENTER", settingPanel.LeftPage, "CENTER", 0, -10)
-    entryBtn:SetText("表情与动作")
+    entryBtn:SetText("表情动作")
     entryBtn:SetScript("OnClick", function()
-        -- 顺便把右页切到「表情与动作」分页，下次打开设定页就能直接看到自定义栏
+        -- 左页按钮只负责切换右页分页，不再直接打开卡片
         if AP_SelectSettingsTab then AP_SelectSettingsTab("emote") end
-        -- 这是独立浮动面板，先把书本主面板收起来，避免互相遮挡
-        if AP_MainFrame and AP_MainFrame:IsShown() then AP_MainFrame:Hide() end
-        UI.Show()
     end)
-
     -- 打开弹幕设置子页时，这个入口按钮也要一起藏起来
     if AP_RegisterSettingsEntry then AP_RegisterSettingsEntry(entryBtn) end
+
+    -- 正面形象：同样只切换右页分页，真正的开关在右页 checkbox 里
+    local modelBtn = CreateFrame("Button", nil, settingPanel.LeftPage, "UIPanelButtonTemplate")
+    modelBtn:SetSize(200, 36)
+    modelBtn:SetPoint("CENTER", settingPanel.LeftPage, "CENTER", 0, -60)
+    modelBtn:SetText("正面形象")
+    modelBtn:SetScript("OnClick", function()
+        if AP_SelectSettingsTab then AP_SelectSettingsTab("model") end
+    end)
+    if AP_RegisterSettingsEntry then AP_RegisterSettingsEntry(modelBtn) end
 
     -- ---------- 右侧：使用说明 + 两个自定义按钮的编辑 ----------
     -- 右页已由 Danmaku.lua 做成分页，这里挂到「表情与动作」那一页里
@@ -921,12 +1490,39 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     hint:SetFont(hint:GetFont(), 13, "")
     hint:SetSpacing(5)
     hint:SetTextColor(0.85, 0.85, 0.85)
-    hint:SetText("左侧「表情与动作」按钮可以打开图标面板。\n在下方填写第 9、10 个按钮的内容。\n以 / 开头会当作表情或命令执行，例如 /moon。")
+    hint:SetText("「表情动作」提供表情、话术和自定义按钮。\n勾选下方开关即可显示 / 收起卡片。\n以 / 开头的内容会当作表情或命令执行。")
+
+    -- ---------- 卡片显示开关 ----------
+    local cardToggle = CreateFrame("CheckButton", "AP_EmoteCardToggle", page, "ChatConfigCheckButtonTemplate")
+    cardToggle:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -6)
+    local cardToggleText = _G[cardToggle:GetName() .. "Text"]
+    cardToggleText:SetText("显示表情动作卡片")
+    cardToggleText:SetFont(cardToggleText:GetFont(), 14, "OUTLINE")
+    cardToggle:SetChecked(card:IsShown())
+    cardToggle:SetScript("OnClick", function(self)
+        if self:GetChecked() then UI.Show() else UI.Hide() end
+    end)
+    card:HookScript("OnShow", function()
+        cardToggle:SetChecked(true)
+        EnsureEmoteDB().cardEnabled = true
+    end)
+    card:HookScript("OnHide", function()
+        cardToggle:SetChecked(false)
+        EnsureEmoteDB().cardEnabled = false
+    end)
+
+    local cardDesc = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    cardDesc:SetPoint("TOPLEFT", cardToggle, "BOTTOMLEFT", 4, -2)
+    cardDesc:SetWidth(320)
+    cardDesc:SetJustifyH("LEFT")
+    cardDesc:SetFont(cardDesc:GetFont(), 12, "")
+    cardDesc:SetTextColor(0.7, 0.7, 0.7)
+    cardDesc:SetText("勾选后显示卡片，也可以随时用 /ape 开关。\n按住 Shift 拖动卡片可调整位置。")
 
     -- ---------- 卡片配色主题选择 ----------
     local themeRow = CreateFrame("Frame", nil, page)
     themeRow:SetSize(340, 26)
-    themeRow:SetPoint("TOP", hint, "BOTTOM", 0, -10)
+    themeRow:SetPoint("TOP", cardDesc, "BOTTOM", 0, -8)
 
     local themeLabel = themeRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     themeLabel:SetPoint("LEFT", themeRow, "LEFT", 0, 0)
@@ -944,8 +1540,8 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
 
     for i, id in ipairs(THEME_ORDER) do
         local btn = CreateFrame("Button", nil, themeRow, "UIPanelButtonTemplate")
-        btn:SetSize(52, 22)
-        btn:SetPoint("LEFT", themeRow, "LEFT", 64 + (i - 1) * 55, 0)
+        btn:SetSize(44, 22)
+        btn:SetPoint("LEFT", themeRow, "LEFT", 60 + (i - 1) * 46, 0)
         btn:SetText(THEMES[id].name)
         btn:SetScript("OnClick", function()
             EnsureEmoteDB().theme = id
@@ -1054,6 +1650,34 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     local firstBlock = BuildCustomEditor(1, themeRow)
     BuildCustomEditor(2, firstBlock)
 
+    -- ---------- 正面形象分页 ----------
+    local modelPage = AP_ModelSettingsPage or page
+    local modelHeader = modelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    modelHeader:SetPoint("TOP", modelPage, "TOP", 0, -18)
+    modelHeader:SetText("正面形象")
+    modelHeader:SetFont(modelHeader:GetFont(), 20, "OUTLINE")
+    modelHeader:SetTextColor(1, 0.85, 0.3)
+
+    local modelToggle = CreateFrame("CheckButton", "AP_ModelToggle", modelPage, "ChatConfigCheckButtonTemplate")
+    modelToggle:SetPoint("TOPLEFT", modelPage, "TOPLEFT", 34, -66)
+    local modelToggleText = _G[modelToggle:GetName() .. "Text"]
+    modelToggleText:SetText("开启正面形象（施法时显示）")
+    modelToggleText:SetFont(modelToggleText:GetFont(), 14, "OUTLINE")
+    modelToggle:SetChecked(EnsureEmoteDB().showModel and true or false)
+    modelToggle:SetScript("OnClick", function(self)
+        EnsureEmoteDB().showModel = self:GetChecked() and true or false
+        if UI.RefreshModel then UI.RefreshModel() end
+    end)
+
+    local modelDesc = modelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    modelDesc:SetPoint("TOPLEFT", modelPage, "TOPLEFT", 34, -100)
+    modelDesc:SetWidth(332)
+    modelDesc:SetJustifyH("LEFT")
+    modelDesc:SetSpacing(6)
+    modelDesc:SetFont(modelDesc:GetFont(), 13, "")
+    modelDesc:SetTextColor(0.8, 0.8, 0.8)
+    modelDesc:SetText("勾选后，进入战斗后的第一次施法时，\n会在姓名卡片上方显示角色正面的 3D 模型。\n\n每次战斗只出现一次，结束约 1 秒后自动收起，\n不会常驻占用屏幕。\n\n需要先显示表情动作卡片，模型才会出现。")
+
     -- SavedVariables 在 Lua 文件执行完之后才注入，所以加载时不要立刻读。
     -- 登录完成后再把存档内容填进两个输入框、套用上次选中的风格。
     local function RefreshCustomEditors()
@@ -1064,6 +1688,8 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         RefreshCustomEditors()
         ApplyTheme(EnsureEmoteDB().theme)
         RefreshThemeButtons()
+        cardToggle:SetChecked(card:IsShown())
+        modelToggle:SetChecked(EnsureEmoteDB().showModel and true or false)
     end
 
     local loginFrame = CreateFrame("Frame")
@@ -1071,6 +1697,20 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     loginFrame:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_LOGIN")
         RefreshSettingsPage()
+        if UI.RestoreModelPosition then UI.RestoreModelPosition() end
+        -- 上次勾选了「显示表情动作卡片」就自动显示，不用每次重新勾
+        if EnsureEmoteDB().cardEnabled then UI.Show() end
+    end)
+
+    -- ADDON_LOADED 时 SavedVariables 已经就绪：立刻恢复勾选状态、卡片与模型窗口位置
+    local loadedFrame = CreateFrame("Frame")
+    loadedFrame:RegisterEvent("ADDON_LOADED")
+    loadedFrame:SetScript("OnEvent", function(self, event, addonName)
+        if addonName ~= "AzerothParallel" then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        RefreshSettingsPage()
+        if UI.RestorePosition then UI.RestorePosition() end
+        if UI.RestoreModelPosition then UI.RestoreModelPosition() end
     end)
 
     -- 之后每次打开主界面也同步一次，避免别处改了存档后输入框还是旧的
