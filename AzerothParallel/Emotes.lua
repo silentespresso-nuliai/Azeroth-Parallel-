@@ -13,6 +13,12 @@ local function EnsureEmoteDB()
     return AP_DB.emote
 end
 
+-- 去掉首尾空格。不依赖全局 strtrim，避免个别客户端没有这个函数。
+local function TrimText(text)
+    if type(text) ~= "string" then return "" end
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 -- ---------- 可调参数 ----------
 local COLUMNS = 5     -- 每行几个图标（基础 8 个 + 自定义 2 个 = 10 个，正好两行）
 local BTN_SIZE = 44   -- 图标大小
@@ -61,7 +67,7 @@ local EMOTES = {
         name = "大笑",
         desc = "哈哈哈哈哈！",
         emote = "LAUGH",
-        icon = "Interface\\Icons\\INV_Misc_Mask_01"
+        icon = "Interface\\Icons\\INV_Misc_Balloon_01"
     },
     {
         name = "跳舞",
@@ -82,10 +88,10 @@ local EMOTES = {
         icon = "Interface\\Icons\\Spell_Nature_Strength"
     },
     {
-        name = "飞吻",
-        desc = "向目标送出一个飞吻。",
-        emote = "BLOWKISS",
-        icon = "Interface\\Icons\\INV_ValentinesCandy"
+        name = "火车",
+        desc = "呜呜——小火车开动啦！",
+        emote = "TRAIN",
+        icon = "Interface\\Icons\\INV_Misc_Toy_10"
     },
     {
         name = "咆哮",
@@ -100,6 +106,47 @@ local CUSTOM_ICONS = {
     "Interface\\Icons\\INV_Misc_Note_02",
     "Interface\\Icons\\INV_Misc_Note_03",
 }
+
+-- ---------- 卡片配色主题（经典 / 烈焰 / 月光 / 森林 / 幽暗） ----------
+-- border       = 标题、名牌、话术列表、按钮悬停的强调色
+-- frameBorder  = 表情面板和属性条外框的边框色
+-- panelBg      = 标题牌/名牌的背景色
+-- accent       = 标题文字、RP 名、属性数值的颜色
+-- buttonBorder = 图标按钮平时的边框色
+local THEMES = {
+    classic = {
+        name = "经典",
+        border = { 0.90, 0.72, 0.28 }, frameBorder = { 0.50, 0.50, 0.55 },
+        panelBg = { 0.14, 0.11, 0.04 }, accent = { 1.00, 0.85, 0.30 },
+        buttonBorder = { 0.40, 0.40, 0.45 },
+    },
+    flame = {
+        name = "烈焰",
+        border = { 0.92, 0.40, 0.14 }, frameBorder = { 0.55, 0.25, 0.16 },
+        panelBg = { 0.18, 0.06, 0.02 }, accent = { 1.00, 0.58, 0.20 },
+        buttonBorder = { 0.42, 0.20, 0.15 },
+    },
+    moonlight = {
+        name = "月光",
+        border = { 0.66, 0.80, 0.98 }, frameBorder = { 0.40, 0.52, 0.68 },
+        panelBg = { 0.06, 0.09, 0.15 }, accent = { 0.82, 0.90, 1.00 },
+        buttonBorder = { 0.30, 0.38, 0.50 },
+    },
+    forest = {
+        name = "森林",
+        border = { 0.42, 0.78, 0.38 }, frameBorder = { 0.30, 0.52, 0.28 },
+        panelBg = { 0.05, 0.12, 0.05 }, accent = { 0.68, 0.96, 0.52 },
+        buttonBorder = { 0.24, 0.38, 0.24 },
+    },
+    shadow = {
+        name = "幽暗",
+        border = { 0.62, 0.42, 0.88 }, frameBorder = { 0.42, 0.30, 0.62 },
+        panelBg = { 0.09, 0.05, 0.14 }, accent = { 0.82, 0.62, 1.00 },
+        buttonBorder = { 0.32, 0.24, 0.44 },
+    },
+}
+local THEME_ORDER = { "classic", "flame", "moonlight", "forest", "shadow" }
+local currentTheme = THEMES.classic
 
 -- 读取（必要时先建立）第 i 个自定义槽的存档。
 -- 存档长这样：AP_DB.emote.custom[1] = { name = "打个招呼", text = "你好呀。" }
@@ -125,7 +172,11 @@ local function GetEntries()
 
         local desc
         if cfg.text and cfg.text ~= "" then
-            desc = "说：" .. cfg.text
+            if cfg.text:sub(1, 1) == "/" then
+                desc = "执行：" .. cfg.text
+            else
+                desc = "说：" .. cfg.text
+            end
         else
             desc = "还没有设置内容，请到「设定 → 表情与动作」里填写。"
         end
@@ -153,13 +204,37 @@ local function FriendlyTargetUnit()
     return nil
 end
 
+-- 自定义按钮的内容如果以 / 开头，就当作表情执行。
+-- 例：/moon -> DoEmote("MOON")；/dance -> DoEmote("DANCE")。
+-- 注意：不能用 RunMacroText，它在 WoW 里是受保护函数，插件调用必定失败。
+-- DoEmote 不同客户端的返回值不一致（有的成功也返回 false），所以只看有没有报错。
+local function RunSlashText(text)
+    local cmd = text:match("^/(%S+)")
+    local token = cmd and cmd:upper()
+    if not token then return end
+
+    local ok = pcall(DoEmote, token, FriendlyTargetUnit())
+    if not ok then
+        -- 某些客户端不接受显式的 nil 目标，再试一次单参数调用
+        ok = pcall(DoEmote, token)
+    end
+    if ok then return end
+
+    print("|cffffd700[AP]|r 无法执行：" .. text ..
+        "。自定义栏只支持 /表情 类命令，例如 /moon、/dance。")
+end
+
 local function Perform(entry)
     if entry.emote then
         -- 有友方玩家目标时，表情会带上目标（比如对着某人飞吻）
         pcall(DoEmote, entry.emote, FriendlyTargetUnit())
     elseif entry.text and entry.text ~= "" then
-        -- 自定义按钮：直接说出玩家在设定页里写的那句话
-        SendChatMessage(entry.text, "SAY")
+        -- 自定义按钮：/ 开头的执行动作，其余内容在说话频道说出来
+        if entry.text:sub(1, 1) == "/" then
+            RunSlashText(entry.text)
+        else
+            SendChatMessage(entry.text, "SAY")
+        end
     elseif entry.lines and #entry.lines > 0 then
         -- 兜底：随机挑一句，并且不和上一句重复（「要说的话」实际走的是选择列表）
         local n = #entry.lines
@@ -181,11 +256,24 @@ local gridW = COLUMNS * BTN_SIZE + (COLUMNS - 1) * BTN_GAP
 local gridH = rows * BTN_SIZE + (rows - 1) * BTN_GAP
 local TITLE_AREA = 34
 
-local frame = CreateFrame("Frame", "AP_EmoteFrame", UIParent, "BackdropTemplate")
-frame:SetSize(gridW + PAD * 2, gridH + PAD * 2 + TITLE_AREA - 8)
+local FRAME_W = gridW + PAD * 2
+local FRAME_H = gridH + PAD * 2 + TITLE_AREA - 8
+
+-- 外层卡片：只负责整体移动、位置存档和统一显隐。
+-- 表情面板、名牌、属性条都挂在它下面。
+-- 这样右上角 × 只会隐藏「表情面板」本身，上面的名牌和属性条会继续留在屏幕上。
+local card = CreateFrame("Frame", "AP_EmoteCard", UIParent)
+card:SetSize(FRAME_W, FRAME_H)
+card:SetFrameStrata("HIGH")
+card:SetClampedToScreen(true)
+card:SetMovable(true)
+card:Hide()
+UI.card = card
+
+-- 真正的表情图标面板：铺满卡片，× 按钮关掉的就是它
+local frame = CreateFrame("Frame", "AP_EmoteFrame", card, "BackdropTemplate")
+frame:SetAllPoints(card)
 frame:SetFrameStrata("HIGH")
-frame:SetClampedToScreen(true)
-frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetBackdrop({
@@ -196,32 +284,40 @@ frame:SetBackdrop({
 })
 frame:SetBackdropColor(0.07, 0.07, 0.08, 0.96)
 frame:SetBackdropBorderColor(0.5, 0.5, 0.55, 1)
-frame:Hide()
 UI.frame = frame
 
--- 位置：读取上次保存的，没有就放在屏幕中间偏右
+-- 位置：读取上次保存的，没有就放在屏幕中间偏右（记录的是外层卡片的位置）
 local function RestorePosition()
-    frame:ClearAllPoints()
+    card:ClearAllPoints()
     local pos = EnsureEmoteDB().pos
     if pos and pos[1] then
-        frame:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+        card:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
     else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 320, 0)
+        card:SetPoint("CENTER", UIParent, "CENTER", 320, 0)
     end
 end
 RestorePosition()
 
+-- 存档可能在文件执行完之后才注入，启动时读到的位置可能是空的；
+-- 登录完成后再恢复一次，避免每次都回到默认位置。
+local positionLogin = CreateFrame("Frame")
+positionLogin:RegisterEvent("PLAYER_LOGIN")
+positionLogin:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_LOGIN")
+    RestorePosition()
+end)
+
 -- 移动方式：必须按住 Shift 再拖动，避免平时点来点去把面板拖跑。
 -- 名牌、属性条、标题牌也会被加进同一套拖动逻辑（见下面 MakeDragHandle）。
 local function StopAndSavePosition()
-    frame:StopMovingOrSizing()
-    local point, _, relPoint, x, y = frame:GetPoint()
+    card:StopMovingOrSizing()
+    local point, _, relPoint, x, y = card:GetPoint()
     EnsureEmoteDB().pos = { point, relPoint, x, y }
 end
 
 local function StartShiftMove()
     if IsShiftKeyDown() then
-        frame:StartMoving()
+        card:StartMoving()
     end
 end
 
@@ -260,10 +356,11 @@ MakeDragHandle(title)
 -- 第一行是「职业流派」里设置的名字（如：珀耳塞福涅·黑檀），
 -- 第二行是当前流派名（如：<夜爪德鲁伊>），并染上该流派的主题色。
 -- ==========================================
-local nameplate = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-nameplate:SetSize(frame:GetWidth(), 54)
+-- 名牌挂在 card 上（而不是 frame 上）：点 × 关掉表情面板时，它会继续显示
+local nameplate = CreateFrame("Frame", nil, card, "BackdropTemplate")
+nameplate:SetSize(FRAME_W, 54)
 -- 向上抬高：先给下面的属性条留出位置（属性条高 50 + 间隔 6）
-nameplate:SetPoint("BOTTOM", frame, "TOP", 0, 78)
+nameplate:SetPoint("BOTTOM", card, "TOP", 0, 78)
 nameplate:SetClampedToScreen(true)
 nameplate:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -277,14 +374,14 @@ MakeDragHandle(nameplate)
 
 local plateName = nameplate:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 plateName:SetPoint("TOP", nameplate, "TOP", 0, -9)
-plateName:SetWidth(frame:GetWidth() - 16)
+plateName:SetWidth(FRAME_W - 16)
 plateName:SetJustifyH("CENTER")
 plateName:SetFont(plateName:GetFont(), 18, "OUTLINE")
 plateName:SetTextColor(1, 0.85, 0.3)
 
 local plateFaction = nameplate:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 plateFaction:SetPoint("TOP", plateName, "BOTTOM", 0, -1)
-plateFaction:SetWidth(frame:GetWidth() - 16)
+plateFaction:SetWidth(FRAME_W - 16)
 plateFaction:SetJustifyH("CENTER")
 plateFaction:SetFont(plateFaction:GetFont(), 13, "")
 
@@ -338,10 +435,11 @@ frame:HookScript("OnShow", UpdateNameplate)
 -- 属性条：力量 / 敏捷 / 智力 / 精神 / 回蓝 / 护甲 / 耐久
 -- 夹在名牌和「表情与动作」标题之间，打开面板时立刻读数，之后每秒刷新。
 -- ==========================================
-local statsBar = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-statsBar:SetSize(frame:GetWidth(), 50)
+-- 属性条同样挂在 card 上，× 关掉表情面板后仍然显示并继续刷新
+local statsBar = CreateFrame("Frame", nil, card, "BackdropTemplate")
+statsBar:SetSize(FRAME_W, 50)
 -- 标题牌顶端在面板上方 12 像素，这里再留 10 像素间隙
-statsBar:SetPoint("BOTTOM", frame, "TOP", 0, 22)
+statsBar:SetPoint("BOTTOM", card, "TOP", 0, 22)
 statsBar:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -400,7 +498,7 @@ local STAT_DEFS = {
 
 local statValues = {}
 local STAT_INNER = 4
-local statCellW = (frame:GetWidth() - STAT_INNER * 2) / #STAT_DEFS
+local statCellW = (FRAME_W - STAT_INNER * 2) / #STAT_DEFS
 
 for i, def in ipairs(STAT_DEFS) do
     local cell = CreateFrame("Button", nil, statsBar)
@@ -481,6 +579,7 @@ statsBar:SetScript("OnUpdate", function(_, elapsed)
     if statElapsed < 1 then return end
     statElapsed = 0
     UpdateStats()
+    UpdateNameplate() -- 表情面板关掉后名牌仍在，这里顺带保持名字/流派实时
 end)
 
 -- 关闭按钮（右上角小叉）
@@ -488,8 +587,8 @@ local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
 close:SetScale(0.75)
 
--- ESC 关闭
-tinsert(UISpecialFrames, "AP_EmoteFrame")
+-- 不注册到 UISpecialFrames：按 ESC 不要关闭这张卡片。
+-- 需要关闭时用右上角 ×（只关表情面板）或 /ape（整张卡片一起开关）。
 
 -- 「要说的话」的选择列表在下方才创建，这里先声明一下，
 -- 这样上面的按钮点击时就能引用到它（Lua 的局部变量要先声明后使用）。
@@ -568,14 +667,14 @@ for i = 1, #initialEntries do
         -- 每次悬停都重新读一遍，设定页改完自定义内容后会立刻反映在提示里
         local now = GetEntries()[i]
         if not now then return end
-        self:SetBackdropBorderColor(0.9, 0.72, 0.28, 1)
+        self:SetBackdropBorderColor(currentTheme.border[1], currentTheme.border[2], currentTheme.border[3], 1)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(now.name, 1, 0.85, 0.3)
         if now.desc then GameTooltip:AddLine(now.desc, 1, 1, 1, true) end
         GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(0.4, 0.4, 0.45, 1)
+        self:SetBackdropBorderColor(currentTheme.buttonBorder[1], currentTheme.buttonBorder[2], currentTheme.buttonBorder[3], 1)
         GameTooltip:Hide()
     end)
 
@@ -702,23 +801,83 @@ function UI.PickLine(line)
     picker:Hide()
 end
 
--- 主面板收起时，选择列表也一起收起来。
+-- 主面板或整张卡片收起时，选择列表也一起收起来。
 -- 否则下次打开面板，上次没关的列表还会自己冒出来。
 frame:HookScript("OnHide", function() picker:Hide() end)
+card:HookScript("OnHide", function() picker:Hide() end)
+
+-- ==========================================
+-- 把选中的配色套到卡片各部件上
+-- ==========================================
+local function ApplyTheme(themeID)
+    local t = THEMES[themeID] or THEMES.classic
+    currentTheme = t
+
+    -- 表情面板外框
+    frame:SetBackdropBorderColor(t.frameBorder[1], t.frameBorder[2], t.frameBorder[3], 1)
+
+    -- 标题牌
+    title:SetBackdropColor(t.panelBg[1], t.panelBg[2], t.panelBg[3], 1)
+    title:SetBackdropBorderColor(t.border[1], t.border[2], t.border[3], 1)
+    titleText:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
+
+    -- 名牌
+    nameplate:SetBackdropColor(t.panelBg[1], t.panelBg[2], t.panelBg[3], 0.95)
+    nameplate:SetBackdropBorderColor(t.border[1], t.border[2], t.border[3], 1)
+    plateName:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
+
+    -- 属性条
+    statsBar:SetBackdropBorderColor(t.frameBorder[1], t.frameBorder[2], t.frameBorder[3], 1)
+    for _, value in pairs(statValues) do
+        value:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
+    end
+
+    -- 图标按钮的普通边框
+    for _, btn in ipairs(buttons) do
+        btn:SetBackdropBorderColor(t.buttonBorder[1], t.buttonBorder[2], t.buttonBorder[3], 1)
+    end
+
+    -- 话术列表
+    picker:SetBackdropBorderColor(t.border[1], t.border[2], t.border[3], 1)
+    pickerTitle:SetTextColor(t.accent[1], t.accent[2], t.accent[3])
+end
+UI.ApplyTheme = ApplyTheme
+
+-- 加载时先按默认风格铺一遍；SavedVariables 注入后再由登录事件重新套用
+ApplyTheme(EnsureEmoteDB().theme)
+
+local themeLogin = CreateFrame("Frame")
+themeLogin:RegisterEvent("PLAYER_LOGIN")
+themeLogin:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_LOGIN")
+    ApplyTheme(EnsureEmoteDB().theme)
+end)
 
 -- ==========================================
 -- 对外接口 / 斜杠命令
 -- ==========================================
 function UI.Show()
+    ApplyTheme(EnsureEmoteDB().theme)
     UpdateNameplate()
     UpdateStats()
     frame:Show()
+    card:Show()
 end
 
-function UI.Hide() frame:Hide() end
+function UI.Hide()
+    if picker then picker:Hide() end
+    card:Hide()
+end
 
 function UI.Toggle()
-    if frame:IsShown() then frame:Hide() else frame:Show() end
+    if not card:IsShown() then
+        UI.Show()
+    elseif not frame:IsShown() then
+        -- 只剩名牌和属性条时，再按 /ape 先把表情面板叫回来
+        frame:Show()
+    else
+        UI.Hide()
+    end
 end
 
 SLASH_APEMOTE1 = "/ape"
@@ -762,13 +921,46 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     hint:SetFont(hint:GetFont(), 13, "")
     hint:SetSpacing(5)
     hint:SetTextColor(0.85, 0.85, 0.85)
-    hint:SetText("左侧「表情与动作」按钮可以打开图标面板。\n在下方填写第 9、10 个按钮要说的话。")
+    hint:SetText("左侧「表情与动作」按钮可以打开图标面板。\n在下方填写第 9、10 个按钮的内容。\n以 / 开头会当作表情或命令执行，例如 /moon。")
 
-    -- 一个自定义槽的编辑器：名称 + 要说的话 + 保存。
+    -- ---------- 卡片配色主题选择 ----------
+    local themeRow = CreateFrame("Frame", nil, page)
+    themeRow:SetSize(340, 26)
+    themeRow:SetPoint("TOP", hint, "BOTTOM", 0, -10)
+
+    local themeLabel = themeRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    themeLabel:SetPoint("LEFT", themeRow, "LEFT", 0, 0)
+    themeLabel:SetText("卡片风格")
+    themeLabel:SetTextColor(0.85, 0.85, 0.85)
+
+    local themeButtons = {}
+    local function RefreshThemeButtons()
+        local selected = EnsureEmoteDB().theme
+        if not THEMES[selected] then selected = "classic" end
+        for id, btn in pairs(themeButtons) do
+            btn:SetButtonState(id == selected and "PUSHED" or "NORMAL", id == selected)
+        end
+    end
+
+    for i, id in ipairs(THEME_ORDER) do
+        local btn = CreateFrame("Button", nil, themeRow, "UIPanelButtonTemplate")
+        btn:SetSize(52, 22)
+        btn:SetPoint("LEFT", themeRow, "LEFT", 64 + (i - 1) * 55, 0)
+        btn:SetText(THEMES[id].name)
+        btn:SetScript("OnClick", function()
+            EnsureEmoteDB().theme = id
+            ApplyTheme(id)
+            RefreshThemeButtons()
+        end)
+        themeButtons[id] = btn
+    end
+
+    -- 两个编辑器的「从存档读入输入框」函数。等存档真正加载完再统一调用。
+    local editorLoaders = {}
+
+    -- 一个自定义槽的编辑器：名称 + 内容 + 保存。
     -- anchor 是它上方的元素，编辑器会挂在 anchor 下面，两个槽自然排成一列。
     local function BuildCustomEditor(slot, anchor)
-        local cfg = GetCustomConfig(slot)
-
         local block = CreateFrame("Frame", nil, page, "BackdropTemplate")
         block:SetSize(340, 118)
         block:SetPoint("TOP", anchor, "BOTTOM", 0, -12)
@@ -792,7 +984,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         nameBox:SetPoint("TOPRIGHT", block, "TOPRIGHT", -12, -6)
         nameBox:SetAutoFocus(false)
         nameBox:SetMaxLetters(24)
-        nameBox:SetText(cfg.name or "")
+        nameBox:SetText("")
         nameBox:SetScript("OnEscapePressed", nameBox.ClearFocus)
 
         local nameLabel = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -811,7 +1003,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         textBox:SetHeight(22)
         textBox:SetAutoFocus(false)
         textBox:SetMaxLetters(120)
-        textBox:SetText(cfg.text or "")
+        textBox:SetText("")
         textBox:SetScript("OnEscapePressed", textBox.ClearFocus)
 
         local save = CreateFrame("Button", nil, block, "UIPanelButtonTemplate")
@@ -824,9 +1016,23 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         status:SetJustifyH("RIGHT")
         status:SetTextColor(0.4, 1, 0.4)
 
+        -- 从当前存档里把内容读进两个输入框。
+        -- 注意不能在文件加载时直接读：那时 SavedVariables 还没注入，读到的会是空表。
+        local function LoadFromDB()
+            local cfg = GetCustomConfig(slot)
+            nameBox:SetText(cfg.name or "")
+            textBox:SetText(cfg.text or "")
+            status:SetText("")
+        end
+        editorLoaders[#editorLoaders + 1] = LoadFromDB
+
         local function Save()
-            cfg.name = strtrim(nameBox:GetText() or "")
-            cfg.text = strtrim(textBox:GetText() or "")
+            -- 关键：保存时重新取一次存档表。
+            -- 如果沿用加载时拿到的旧表，写入的内容不会进 SavedVariables，
+            -- 表现就是「保存后没反应，/reload 后清空」。
+            local cfg = GetCustomConfig(slot)
+            cfg.name = TrimText(nameBox:GetText())
+            cfg.text = TrimText(textBox:GetText())
             status:SetText("已保存")
             -- 让浮动面板里的按钮提示立刻刷新
             if UI.Refresh then UI.Refresh() end
@@ -845,6 +1051,30 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         return block
     end
 
-    local firstBlock = BuildCustomEditor(1, hint)
+    local firstBlock = BuildCustomEditor(1, themeRow)
     BuildCustomEditor(2, firstBlock)
+
+    -- SavedVariables 在 Lua 文件执行完之后才注入，所以加载时不要立刻读。
+    -- 登录完成后再把存档内容填进两个输入框、套用上次选中的风格。
+    local function RefreshCustomEditors()
+        for _, load in ipairs(editorLoaders) do load() end
+    end
+
+    local function RefreshSettingsPage()
+        RefreshCustomEditors()
+        ApplyTheme(EnsureEmoteDB().theme)
+        RefreshThemeButtons()
+    end
+
+    local loginFrame = CreateFrame("Frame")
+    loginFrame:RegisterEvent("PLAYER_LOGIN")
+    loginFrame:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_LOGIN")
+        RefreshSettingsPage()
+    end)
+
+    -- 之后每次打开主界面也同步一次，避免别处改了存档后输入框还是旧的
+    if AP_MainFrame then
+        AP_MainFrame:HookScript("OnShow", RefreshSettingsPage)
+    end
 end
