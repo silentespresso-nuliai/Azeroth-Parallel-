@@ -585,10 +585,57 @@ playerModel:SetPoint("BOTTOMRIGHT", -6, 6)
 playerModel:SetFrameLevel(modelFrame:GetFrameLevel() + 1)
 playerModel:EnableMouse(false)
 
+-- 错愕表演：不依赖某个具体表情动画是否存在。
+-- 模型左右甩头 + 轻微弹跳 + 头顶「？！」大字，动画没命中时也能看出“被吓到”。
+local shockText = modelFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+shockText:SetPoint("TOP", modelFrame, "TOP", 0, 46)
+shockText:SetFont(shockText:GetFont(), 44, "OUTLINE")
+shockText:SetTextColor(1, 0.15, 0.1)
+shockText:SetText("？！")
+shockText:Hide()
+
+local shockTicker = CreateFrame("Frame")
+shockTicker:Hide()
+local shockElapsed = 0
+local SHOCK_DURATION = 0.7
+shockTicker:SetScript("OnUpdate", function(self, elapsed)
+    shockElapsed = shockElapsed + elapsed
+    if shockElapsed >= SHOCK_DURATION then
+        pcall(playerModel.SetRotation, playerModel, 0)
+        modelFrame:SetScale(1)
+        shockText:Hide()
+        self:Hide()
+        return
+    end
+    -- 频率较高的左右摆动，配合一点缩放，看起来像被吓了一跳
+    local rotation = math.sin(shockElapsed * 50) * 14
+    pcall(playerModel.SetRotation, playerModel, rotation)
+    modelFrame:SetScale(1 + 0.05 * math.abs(math.sin(shockElapsed * 22)))
+end)
+
+local function ResetShock()
+    shockTicker:Hide()
+    shockText:Hide()
+    pcall(playerModel.SetRotation, playerModel, 0)
+    modelFrame:SetScale(1)
+end
+
+local function PlayShock()
+    shockElapsed = 0
+    shockText:Show()
+    shockTicker:Show()
+end
+
 -- 施法动作 ID 各客户端不完全一样：按优先级找一个模型确实拥有的
 local castAnimID
 local CAST_ANIM_CANDIDATES = { 53, 54, 32, 31, 11 }
 local modelCasting = false
+
+-- 被动进战时的“哎呀”动作候选：12 = Cry（掩面哭泣），13 = Emote。
+-- 不同客户端模型拥有的动画不一样，FindPassiveAnim 会挑第一个存在的。
+local passiveAnimID
+local PASSIVE_ANIM_CANDIDATES = { 12, 13, 101, 102, 103 }
+local modelPassive = false
 
 local function FindCastAnim()
     castAnimID = nil
@@ -602,10 +649,27 @@ local function FindCastAnim()
     end
 end
 
+-- 找一个“挨打/哎呀”的表情动作；候选都不存在时返回 nil，模型仍然会显示。
+local function FindPassiveAnim()
+    passiveAnimID = nil
+    if not playerModel.HasAnimation then return end
+    for _, id in ipairs(PASSIVE_ANIM_CANDIDATES) do
+        local ok, has = pcall(playerModel.HasAnimation, playerModel, id)
+        if ok and has then
+            passiveAnimID = id
+            return
+        end
+    end
+end
+
 -- 施法动作播完一次后自动重播，避免停在最后一个姿势上“傻站”
 playerModel:SetScript("OnAnimFinished", function(self)
-    if modelCasting and modelFrame:IsShown() and castAnimID then
+    if not modelFrame:IsShown() then return end
+    if modelCasting and castAnimID then
         pcall(self.SetAnimation, self, castAnimID)
+    elseif modelPassive and passiveAnimID then
+        -- 被动形象也循环播放，别停在最后一个姿势
+        pcall(self.SetAnimation, self, passiveAnimID)
     end
 end)
 
@@ -624,6 +688,7 @@ local function RefreshModelUnit()
     -- 先回到站立，等真正展示时再切施法动作
     pcall(playerModel.SetAnimation, playerModel, 0)
     FindCastAnim()
+    FindPassiveAnim()
 end
 
 -- 模型已经独立到屏幕顶部，提示条固定回到名牌上方
@@ -639,6 +704,7 @@ function UI.RefreshModel()
     if not EnsureEmoteDB().showModel then
         modelHideToken = modelHideToken + 1
         modelCasting = false
+        modelPassive = false
         modelFrame:Hide()
         UpdateNotifyAnchor()
     end
@@ -648,6 +714,8 @@ end
 card:HookScript("OnHide", function()
     modelHideToken = modelHideToken + 1
     modelCasting = false
+    modelPassive = false
+    ResetShock()
     modelFrame:Hide()
 end)
 
@@ -687,6 +755,7 @@ local function ShowCastModel()
 
     modelHideToken = modelHideToken + 1
     modelCasting = true
+    modelPassive = false
     local wasHidden = not modelFrame:IsShown()
     modelFrame:Show()
 
@@ -715,6 +784,8 @@ local function HideCastModelSoon(delay)
         end
 
         modelCasting = false
+        modelPassive = false
+        ResetShock()
         modelFrame:Hide()
         UpdateNotifyAnchor()
     end
@@ -726,8 +797,41 @@ local function HideCastModelSoon(delay)
     end
 end
 
+-- 被动进战：不施法、不亮施法动作，直接摆一个“哎呀”的哭泣/受击姿势
+local function ShowHurtModel()
+    if not EnsureEmoteDB().showModel or not card:IsShown() then return false end
+
+    modelHideToken = modelHideToken + 1
+    modelCasting = false
+    modelPassive = true
+    local wasHidden = not modelFrame:IsShown()
+    modelFrame:Show()
+    if wasHidden then
+        RefreshModelUnit()
+    end
+    if passiveAnimID then
+        pcall(playerModel.SetAnimation, playerModel, passiveAnimID)
+    end
+    -- 不管有没有命中表情动画，都加一段甩头 + 「？！」的错愕表演
+    PlayShock()
+    UpdateNotifyAnchor()
+    HideCastModelSoon(2.5)
+    return true
+end
+
 -- 每次进入战斗只展示一次：记录本次战斗里是否已经触发过
 local shownThisCombat = false
+
+-- 被动进战（走进仇恨、被偷袭等）由 CombatEntry 通知，切到“哎呀”形象。
+-- 主动进战不在这里处理，继续走原来的“第一次施法显示施法动作”。
+if AP_CombatEntry and AP_CombatEntry.Register then
+    AP_CombatEntry.Register(function(state)
+        if state ~= "passive" then return end
+        if ShowHurtModel() then
+            shownThisCombat = true
+        end
+    end)
+end
 
 local function IsSecretValue(value)
     if type(issecretvalue) ~= "function" then return false end

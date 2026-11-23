@@ -218,9 +218,18 @@ local function SetEnabled(value)
     end
 end
 
+-- 给施法条模块共用同一套“官方名 → 专属称呼”查询
+local function GetAliasForID(spellID)
+    local name = GetSpellNameByID(spellID)
+    return LookupAliasByName(name)
+end
+
 AP_TooltipAlias = {
     SetEnabled = SetEnabled,
     IsEnabled = function() return enabled end,
+    GetAliasForID = GetAliasForID,
+    GetAliasByName = LookupAliasByName,
+    GetNameForID = GetSpellNameByID,
 }
 
 -- 登录时按存档恢复开关状态

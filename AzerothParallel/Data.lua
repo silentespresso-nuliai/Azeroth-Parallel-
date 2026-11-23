@@ -32,36 +32,52 @@ AP_FlavorData = {
     ["DRUID"] = {
         className = "德鲁伊",
         classColor = RAID_CLASS_COLORS["DRUID"],
+        -- 无限服的德鲁伊只有四个种族：暗夜精灵、牛头人、巨魔、天裔。
+        -- 每个流派用 races 限定种族；Flavor.lua 会按玩家种族只显示对应的一个。
         factions = {
             {
-                id = "Highborne",
-                name = "高阶会",
+                id = "Cenarius",
+                name = "塞纳里奥",
                 -- 流派主题色：高光特写优先用它，不配则回退职业色
-                themeColor = { r = 0.35, g = 0.62, b = 0.95 }, -- 奥术蓝
+                themeColor = { r = 0.34, g = 0.72, b = 0.46 }, -- 月林绿
                 reqFaction = "Alliance",
-                icon = "Interface\\Icons\\Spell_Arcane_Arcane02",
+                races = { "NightElf" }, -- 暗夜精灵
+                icon = "Interface\\Icons\\Spell_Nature_StarFall",
                 description =
-                "天裔是无限服全新种族，没有历史层积的专属职业称呼。德鲁伊直接使用职业名，但这群天裔的血脉中流淌着高阶会的奥术遗产。\n\n泽风岛的天空正在剥落，风灵失踪的真相、族人的分裂、密教的威胁——这一切都还没有答案。你是高阶会的一员，追寻着奥术与学术的传统，试图在危机中寻找真相。",
-                tiers = MakeTiers("德鲁伊", { "星界学徒", "奥术贤者", "高阶会长老", "高阶会贤者" })
+                "塞纳里奥议会的德鲁伊之道传承自上古之夜。暗夜精灵在月光下沉睡于翡翠梦境，也在海加尔山的树根之间守望世界之树。\n\n他们既是祭司，也是野兽；既向艾露恩祈祷，也倾听每一棵树的声音。\n\n月光照在你的爪尖，森林在等你回去。",
+                tiers = MakeTiers("德鲁伊", { "月林学徒", "塞纳里奥守护者", "大德鲁伊", "半神之友" })
             },
             {
-                id = "Windshaper",
-                name = "塑风者",
-                themeColor = { r = 0.30, g = 0.80, b = 0.72 }, -- 风之青绿
+                id = "Runetotem",
+                name = "符文图腾",
+                themeColor = { r = 0.72, g = 0.46, b = 0.22 }, -- 大地棕
                 reqFaction = "Horde",
-                icon = "Interface\\Icons\\Spell_Nature_Cyclone",
+                races = { "Tauren" }, -- 牛头人
+                icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02",
                 description =
-                "塑风者天裔的德鲁伊直接使用职业名，但他们的信仰深处是对元素与荒野的原始崇拜。\n\n萨满之道是塑风者的主流——图腾、元素、先祖。你作为其中的一员，肩负着在异乡重建族群荣光的使命。风之灵失踪了。你的族人需要答案。而你，需要让元素重新咆哮。",
-                tiers = MakeTiers("德鲁伊", { "风语者", "塑风长老", "元素先行者", "风暴之声" })
+                "符文图腾部族把德鲁伊之道看作大地母亲的呼吸。牛头人在莫高雷的草原上与科多兽同行，用图腾与先祖对话，把每一场战斗都当作对自然的敬礼。\n\n他们不追求奥术的答案，而是倾听土地的疼痛。\n\n大地母亲在看着你，别让她的孩子白白流血。",
+                tiers = MakeTiers("德鲁伊", { "大地学徒", "符文行者", "符文长老", "大地之子的回声" })
+            },
+            {
+                id = "Loa",
+                name = "洛阿德鲁伊",
+                themeColor = { r = 0.62, g = 0.36, b = 0.82 }, -- 洛阿紫
+                reqFaction = "Horde",
+                races = { "Troll" }, -- 巨魔
+                icon = "Interface\\Icons\\Ability_Druid_TigersRoar",
+                description =
+                "巨魔德鲁伊的力量来自洛阿，尤其是迅猛龙之神贡克。暗矛部族的德鲁伊在丛林中学习野兽的形状，把贡克的狡黠与猎手的耐心一起带进战斗。\n\n他们不崇拜月亮，也不向大地母亲祈祷；他们与神灵讨价还价，然后变成神灵想要的样子。\n\n洛阿在听，你的獠牙准备好了吗？",
+                tiers = MakeTiers("德鲁伊", { "洛阿侍者", "兽形信徒", "贡克之爪", "洛阿神选" })
             },
             {
                 id = "Nightclaw",
                 name = "夜爪德鲁伊",
                 themeColor = { r = 0.58, g = 0.38, b = 0.78 }, -- 暗夜紫
                 reqFaction = "Neutral",
+                races = { "Tianyi" }, -- 天裔（自定义种族；Flavor.lua 里做兜底归类）
                 icon = "Interface\\Icons\\Ability_Druid_Rake",
                 description =
-                "夜爪不是某个组织的名字，而是一种选择。当天裔的族人分裂为元素与奥术两派时，仍有一小群人选择走入荒野，倾听草木与野兽的低语。\n\n他们不效忠高阶会，也不加入塑风者。他们是夜爪，是申多雷德鲁伊血脉中几乎断绝的回响。现在，荒野在呼唤你。",
+                "夜爪不是某个组织的名字，而是一种选择。当天裔的族人分裂为元素与奥术两派时，仍有一小群人选择走入荒野，倾听草木与野兽的低语。\n\n他们不效忠分裂后的任何一方，也不愿被部族的旗帜绑住。他们是夜爪，是申多雷德鲁伊血脉中几乎断绝的回响。现在，荒野在呼唤你。",
                 tiers = {
                     { level = 1, name = "荒野旅者", exp = 0 }, { level = 2, name = "月影行者", exp = 500 },
                     { level = 3, name = "林间守望者", exp = 1500 }, { level = 4, name = "自然之友", exp = 3000 },
