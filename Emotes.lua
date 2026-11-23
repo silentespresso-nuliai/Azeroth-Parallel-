@@ -525,6 +525,9 @@ local MODEL_H = 660 -- 再高一点，方便 Shift 拖到合适位置
 local modelFrame = CreateFrame("Frame", nil, card, "BackdropTemplate")
 modelFrame:SetSize(MODEL_W, MODEL_H)
 modelFrame:SetFrameStrata("HIGH")
+-- 层级抬高：模型要压在姓名牌、属性条的文字之上，避免卡片的字挡住人物。
+-- 卡片里的子控件默认和 card 同级，只抬高模型这一层，不影响其他界面。
+modelFrame:SetFrameLevel(card:GetFrameLevel() + 30)
 -- 不要背景：只显示人物，空白区域透明，不会再有黑框/空白问题
 modelFrame:Hide()
 
@@ -585,10 +588,57 @@ playerModel:SetPoint("BOTTOMRIGHT", -6, 6)
 playerModel:SetFrameLevel(modelFrame:GetFrameLevel() + 1)
 playerModel:EnableMouse(false)
 
+-- 错愕表演：不依赖某个具体表情动画是否存在。
+-- 模型左右甩头 + 轻微弹跳 + 头顶「？！」大字，动画没命中时也能看出“被吓到”。
+local shockText = modelFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+shockText:SetPoint("TOP", modelFrame, "TOP", 0, 46)
+shockText:SetFont(shockText:GetFont(), 44, "OUTLINE")
+shockText:SetTextColor(1, 0.15, 0.1)
+shockText:SetText("？！")
+shockText:Hide()
+
+local shockTicker = CreateFrame("Frame")
+shockTicker:Hide()
+local shockElapsed = 0
+local SHOCK_DURATION = 0.7
+shockTicker:SetScript("OnUpdate", function(self, elapsed)
+    shockElapsed = shockElapsed + elapsed
+    if shockElapsed >= SHOCK_DURATION then
+        pcall(playerModel.SetRotation, playerModel, 0)
+        modelFrame:SetScale(1)
+        shockText:Hide()
+        self:Hide()
+        return
+    end
+    -- 频率较高的左右摆动，配合一点缩放，看起来像被吓了一跳
+    local rotation = math.sin(shockElapsed * 50) * 14
+    pcall(playerModel.SetRotation, playerModel, rotation)
+    modelFrame:SetScale(1 + 0.05 * math.abs(math.sin(shockElapsed * 22)))
+end)
+
+local function ResetShock()
+    shockTicker:Hide()
+    shockText:Hide()
+    pcall(playerModel.SetRotation, playerModel, 0)
+    modelFrame:SetScale(1)
+end
+
+local function PlayShock()
+    shockElapsed = 0
+    shockText:Show()
+    shockTicker:Show()
+end
+
 -- 施法动作 ID 各客户端不完全一样：按优先级找一个模型确实拥有的
 local castAnimID
 local CAST_ANIM_CANDIDATES = { 53, 54, 32, 31, 11 }
 local modelCasting = false
+
+-- 被动进战时的“哎呀”动作候选：12 = Cry（掩面哭泣），13 = Emote。
+-- 不同客户端模型拥有的动画不一样，FindPassiveAnim 会挑第一个存在的。
+local passiveAnimID
+local PASSIVE_ANIM_CANDIDATES = { 12, 13, 101, 102, 103 }
+local modelPassive = false
 
 local function FindCastAnim()
     castAnimID = nil
@@ -602,10 +652,50 @@ local function FindCastAnim()
     end
 end
 
+-- 找一个“挨打/哎呀”的表情动作；候选都不存在时返回 nil，模型仍然会显示。
+local function FindPassiveAnim()
+    passiveAnimID = nil
+    if not playerModel.HasAnimation then return end
+    for _, id in ipairs(PASSIVE_ANIM_CANDIDATES) do
+        local ok, has = pcall(playerModel.HasAnimation, playerModel, id)
+        if ok and has then
+            passiveAnimID = id
+            return
+        end
+    end
+end
+
+-- 判断玩家现在是不是“人形态”。
+-- 德鲁伊变形、萨满幽魂之狼这类非人形态如果继续用 PlayerModel 复制，
+-- 会把猫 / 熊 / 狼的巨大模型直接塞进窗口，所以这些形态一律不显示立绘。
+local function IsHumanForm()
+    -- 大部分形态职业（德鲁伊、萨满、狼人）用形态索引判断：0 = 人形
+    local okForm, form = pcall(GetShapeshiftForm)
+    if okForm and type(form) == "number" and form > 0 then
+        return false
+    end
+
+    -- 部分客户端的幽魂之狼 / 变形走光环，不占用形态索引。
+    -- 新版用 spellID 查光环，旧版退回按中文名查 buff。
+    if type(C_UnitAuras) == "table" and C_UnitAuras.GetPlayerAuraBySpellID then
+        local okAura, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 2645) -- 幽魂之狼
+        if okAura and aura then return false end
+    elseif type(UnitBuff) == "function" then
+        local okAura, name = pcall(UnitBuff, "player", "幽魂之狼")
+        if okAura and name then return false end
+    end
+
+    return true
+end
+
 -- 施法动作播完一次后自动重播，避免停在最后一个姿势上“傻站”
 playerModel:SetScript("OnAnimFinished", function(self)
-    if modelCasting and modelFrame:IsShown() and castAnimID then
+    if not modelFrame:IsShown() then return end
+    if modelCasting and castAnimID then
         pcall(self.SetAnimation, self, castAnimID)
+    elseif modelPassive and passiveAnimID then
+        -- 被动形象也循环播放，别停在最后一个姿势
+        pcall(self.SetAnimation, self, passiveAnimID)
     end
 end)
 
@@ -624,6 +714,7 @@ local function RefreshModelUnit()
     -- 先回到站立，等真正展示时再切施法动作
     pcall(playerModel.SetAnimation, playerModel, 0)
     FindCastAnim()
+    FindPassiveAnim()
 end
 
 -- 模型已经独立到屏幕顶部，提示条固定回到名牌上方
@@ -639,6 +730,7 @@ function UI.RefreshModel()
     if not EnsureEmoteDB().showModel then
         modelHideToken = modelHideToken + 1
         modelCasting = false
+        modelPassive = false
         modelFrame:Hide()
         UpdateNotifyAnchor()
     end
@@ -648,6 +740,8 @@ end
 card:HookScript("OnHide", function()
     modelHideToken = modelHideToken + 1
     modelCasting = false
+    modelPassive = false
+    ResetShock()
     modelFrame:Hide()
 end)
 
@@ -660,7 +754,31 @@ else
     modelEventFrame:RegisterEvent("UNIT_MODEL_CHANGED")
 end
 modelEventFrame:SetScript("OnEvent", function()
-    if modelFrame:IsShown() then RefreshModelUnit() end
+    if not modelFrame:IsShown() then return end
+    -- 换装备时在非人形态，直接收起，不要刷新成猫/熊/狼的模型
+    if not IsHumanForm() then
+        modelCasting = false
+        modelPassive = false
+        modelFrame:Hide()
+        UpdateNotifyAnchor()
+        return
+    end
+    RefreshModelUnit()
+end)
+
+-- 变形时立刻收起立绘：德鲁伊进猫/熊、萨满开幽魂之狼等，
+-- 不等下一次施法或换装备，避免巨大的非人模型留在屏幕上。
+local formEventFrame = CreateFrame("Frame")
+formEventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+formEventFrame:SetScript("OnEvent", function()
+    if not modelFrame:IsShown() then return end
+    if not IsHumanForm() then
+        modelCasting = false
+        modelPassive = false
+        ResetShock()
+        modelFrame:Hide()
+        UpdateNotifyAnchor()
+    end
 end)
 
 -- 施法时让模型做施法动作，结束 / 打断后回到站立
@@ -683,10 +801,13 @@ for _, eventName in ipairs(CAST_EVENTS) do
 end
 -- 施法时临时显示；结束/打断后过一小会儿自动收起
 local function ShowCastModel()
-    if not EnsureEmoteDB().showModel or not card:IsShown() then return end
+    if not EnsureEmoteDB().showModel or not card:IsShown() then return false end
+    -- 非人形态不显示立绘，也不消耗“本次战斗只能展示一次”的机会
+    if not IsHumanForm() then return false end
 
     modelHideToken = modelHideToken + 1
     modelCasting = true
+    modelPassive = false
     local wasHidden = not modelFrame:IsShown()
     modelFrame:Show()
 
@@ -700,6 +821,7 @@ local function ShowCastModel()
         pcall(playerModel.SetAnimation, playerModel, castAnimID)
     end
     UpdateNotifyAnchor()
+    return true
 end
 
 local function HideCastModelSoon(delay)
@@ -715,6 +837,8 @@ local function HideCastModelSoon(delay)
         end
 
         modelCasting = false
+        modelPassive = false
+        ResetShock()
         modelFrame:Hide()
         UpdateNotifyAnchor()
     end
@@ -726,8 +850,44 @@ local function HideCastModelSoon(delay)
     end
 end
 
+-- 被动进战：不施法、不亮施法动作，直接摆一个“哎呀”的哭泣/受击姿势
+local function ShowHurtModel()
+    if not EnsureEmoteDB().showModel or not card:IsShown() then return false end
+    if not IsHumanForm() then return false end
+
+    modelHideToken = modelHideToken + 1
+    modelCasting = false
+    modelPassive = true
+    local wasHidden = not modelFrame:IsShown()
+    if wasHidden then
+        RefreshModelUnit()
+    end
+
+    -- 被动进战必须显示立绘：即使客户端没有哭泣 / 受击动画，也照常出现。
+    -- 没有动画时靠下面的甩头 + 「？！」保持画面有反应，不会显得僵硬。
+    modelFrame:Show()
+    if passiveAnimID then
+        pcall(playerModel.SetAnimation, playerModel, passiveAnimID)
+    end
+    PlayShock()
+    UpdateNotifyAnchor()
+    HideCastModelSoon(2.5)
+    return true
+end
+
 -- 每次进入战斗只展示一次：记录本次战斗里是否已经触发过
 local shownThisCombat = false
+
+-- 被动进战（走进仇恨、被偷袭等）由 CombatEntry 通知，切到“哎呀”形象。
+-- 主动进战不在这里处理，继续走原来的“第一次施法显示施法动作”。
+if AP_CombatEntry and AP_CombatEntry.Register then
+    AP_CombatEntry.Register(function(state)
+        if state ~= "passive" then return end
+        if ShowHurtModel() then
+            shownThisCombat = true
+        end
+    end)
+end
 
 local function IsSecretValue(value)
     if type(issecretvalue) ~= "function" then return false end
@@ -764,8 +924,9 @@ local function TryShowFirstCombatCast()
     if shownThisCombat then return end
 
     if IsPlayerInCombat() then
-        shownThisCombat = true
-        ShowCastModel()
+        -- 只有真正显示了立绘，才算用掉本次战斗的展示机会；
+        -- 非人形态（猫/熊/狼等）不显示，之后变回人形再施法仍然可以展示。
+        if ShowCastModel() then shownThisCombat = true end
         return
     end
 
@@ -775,8 +936,7 @@ local function TryShowFirstCombatCast()
         C_Timer.After(0.2, function()
             if shownThisCombat then return end
             if IsPlayerInCombat() then
-                shownThisCombat = true
-                ShowCastModel()
+                if ShowCastModel() then shownThisCombat = true end
             end
         end)
     end
@@ -1743,7 +1903,7 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     modelDesc:SetSpacing(6)
     modelDesc:SetFont(modelDesc:GetFont(), 13, "")
     modelDesc:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    modelDesc:SetText("勾选后，进入战斗后的第一次施法时，\n会在姓名卡片上方显示角色正面的 3D 模型。\n\n每次战斗只出现一次，结束约 1 秒后自动收起，\n不会常驻占用屏幕。\n\n需要先显示表情动作卡片，模型才会出现。")
+    modelDesc:SetText("勾选后，进入战斗后的第一次施法时，\n会在姓名卡片上方显示角色正面的 3D 模型。\n\n只在人形态显示；德鲁伊变形、幽魂之狼等非人形态不会出现。\n\n每次战斗只出现一次，结束约 1 秒后自动收起，\n不会常驻占用屏幕。\n\n需要先显示表情动作卡片，模型才会出现。")
 
     -- SavedVariables 在 Lua 文件执行完之后才注入，所以加载时不要立刻读。
     -- 登录完成后再把存档内容填进两个输入框、套用上次选中的风格。

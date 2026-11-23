@@ -2,19 +2,22 @@
 #游戏 /dump select(4, GetBuildInfo()) 查客户端实际版本
 ## X-Wago-ID: rN4r0zKD
 ## X-Curse-Project-ID: 1820395
+
 ## Title: 艾泽拉斯平行宇宙 (Azeroth Parallel)
 ## Notes: RP 职业流派、称谓典籍、聊天弹幕、高光特写、表情动作卡片与同好名录。
 ## Author: 怒里哀 akiuratora@gmail.com
-## Version: 1.0.0-beta.1
+## Version: 1.0.0-beta.7
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## SavedVariables: AP_DB
 Core.lua
 Danmaku.lua
+CombatEntry.lua
 Emotes.lua
 Terms.lua
 Data.lua
 Flavor.lua
 Overrides.lua
+CastBar.lua
 Network.lua
 Peers.lua
 Nameplate.lua

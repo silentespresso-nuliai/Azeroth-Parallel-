@@ -31,6 +31,21 @@ end
 -- 这里保留同名局部引用，下面所有逻辑和 UI 代码不需要改。
 local FlavorData = AP_FlavorData
 
+-- 玩家种族：无限服的德鲁伊只有暗夜精灵、巨魔、牛头人、天裔。
+-- 天裔是自定义种族，token 不确定；德鲁伊里凡不属于前三者的，统一归为 "Tianyi"。
+-- 其他职业的数据没有写 races，所以不受这段影响。
+local raceName, raceToken = UnitRace("player")
+local function GetRaceKey(classToken)
+    if classToken == "DRUID" then
+        if raceToken == "NightElf" or raceName == "暗夜精灵" then return "NightElf" end
+        if raceToken == "Troll" or raceName == "巨魔" then return "Troll" end
+        if raceToken == "Tauren" or raceName == "牛头人" then return "Tauren" end
+        return "Tianyi"
+    end
+    return raceToken
+end
+local playerRaceKey = GetRaceKey(realClassToken)
+
 -- 书页是浅色羊皮纸，正文要用深色“墨水”才能看清。
 -- 颜色统一从 Core.lua 的 AP_Theme 取；万一 Core 还没定义，就用下面这份兜底。
 local THEME = AP_Theme or {
@@ -40,9 +55,20 @@ local THEME = AP_Theme or {
 
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
--- 玩家阵营是否能选这个流派
+-- 玩家种族是否能选这个流派；没写 races 的流派对所有种族开放
+local function IsRaceUsable(f)
+    if not f or not f.races then return true end
+    for _, key in ipairs(f.races) do
+        if key == playerRaceKey then return true end
+    end
+    return false
+end
+
+-- 玩家阵营 + 种族是否都能选这个流派
 local function IsFactionUsable(f)
-    return f.reqFaction == "Neutral" or f.reqFaction == playerFaction
+    if not f then return false end
+    local factionOK = f.reqFaction == "Neutral" or f.reqFaction == playerFaction
+    return factionOK and IsRaceUsable(f)
 end
 
 local function FindFaction(classData, factionID)
@@ -62,7 +88,7 @@ do
     local ownData = FlavorData[AP_DB.flavor.currentClass]
     if ownData then
         local cur = FindFaction(ownData, AP_DB.flavor.currentFaction)
-        -- 流派不存在，或者和玩家阵营不符（例如换了角色/阵营）时，重新选一个可用的
+        -- 流派不存在、或阵营/种族不符（例如换了角色）时，重新选一个可用的
         if not cur or not IsFactionUsable(cur) then
             local pick = ownData.factions[1]
             for _, f in ipairs(ownData.factions) do
@@ -73,8 +99,13 @@ do
             AP_DB.flavor.currentFaction = pick.id
         end
     end
-    if not FindFaction(FlavorData[AP_DB.flavor.previewClass], AP_DB.flavor.previewFaction) then
-        AP_DB.flavor.previewFaction = FlavorData[AP_DB.flavor.previewClass].factions[1].id
+
+    -- 预览允许看所有流派（图鉴）；能不能转投由 IsFactionUsable 单独判断
+    local previewClassData = FlavorData[AP_DB.flavor.previewClass]
+    if previewClassData and previewClassData.factions then
+        if not FindFaction(previewClassData, AP_DB.flavor.previewFaction) then
+            AP_DB.flavor.previewFaction = previewClassData.factions[1].id
+        end
     end
 end
 
@@ -86,7 +117,13 @@ local FlavorManager = {}
 function FlavorManager.GetCurrentFactionData()
     local classData = FlavorData[AP_DB.flavor.currentClass]
     if not classData or not classData.factions then return nil, nil end
-    return FindFaction(classData, AP_DB.flavor.currentFaction) or classData.factions[1], classData
+
+    local found = FindFaction(classData, AP_DB.flavor.currentFaction)
+    if found and IsFactionUsable(found) then return found, classData end
+    for _, f in ipairs(classData.factions) do
+        if IsFactionUsable(f) then return f, classData end
+    end
+    return classData.factions[1], classData
 end
 
 function FlavorManager.GetPreviewFactionData()
@@ -515,7 +552,7 @@ descText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 local tooltipToggle = CreateFrame("CheckButton", "AP_TooltipAliasToggle", RightPage, "ChatConfigCheckButtonTemplate")
 tooltipToggle:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 50, -32)
 local toggleText = _G[tooltipToggle:GetName() .. "Text"]
-toggleText:SetText("应用到游戏内提示（仅自己可见）")
+toggleText:SetText("应用到游戏内提示/施法条（仅自己可见）")
 toggleText:SetFont(toggleText:GetFont(), 14, "")
 toggleText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 tooltipToggle:SetChecked(AP_DB.flavor.tooltipAlias and true or false)
@@ -971,6 +1008,8 @@ function UI.Refresh()
     -- 预览别的流派/职业时，声望条显示的是那个流派自己的存档数据，并用灰色区分。
     local isOwn = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass
         and previewData.id == AP_DB.flavor.currentFaction)
+    -- 当前角色种族/阵营不能选的流派：仍可看图鉴，但不能转投
+    local notUsable = not IsFactionUsable(previewData)
 
     if isOwn then
         repBar:SetStatusBarColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
@@ -983,8 +1022,9 @@ function UI.Refresh()
         if isOwn then
             levelDisplay:SetText("|cff5c3f23当前身份：|r" .. tier.name)
         else
-            -- 明确写“未激活”，避免把这里的 0 声望误当成自己当前流派的经验
-            levelDisplay:SetText("|cff7a6a55预览：" .. previewData.name .. " · " .. tier.name .. "（未激活）|r")
+            -- 明确区分“未激活”和“本角色不能选”，避免误解
+            local suffix = notUsable and "（仅图鉴，不可转投）" or "（未激活）"
+            levelDisplay:SetText("|cff7a6a55预览：" .. previewData.name .. " · " .. tier.name .. suffix .. "|r")
         end
         if nextTier then
             local prevExp = tier.exp or 0

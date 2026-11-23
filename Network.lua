@@ -24,7 +24,7 @@ EnsureDB()
 -- 广播里直接发简称，不在接收端查表：
 -- 这样即使两边插件版本/词条不同，也不会显示成错误的名字。
 local FACTION_SHORT = {
-    DRUID = { Highborne = "高阶会", Windshaper = "塑风者", Nightclaw = "夜爪" },
+    DRUID = { Cenarius = "塞纳里奥", Runetotem = "符文图腾", Loa = "洛阿德鲁伊", Nightclaw = "夜爪" },
     PALADIN = { SilverHand = "白银之手", Sunwalker = "烈日行者", UndeadPaladin = "灰烬誓约", LoneOath = "独行誓者" },
     PRIEST = { HolyChurch = "圣光", MoonPriestess = "月神", ShadowPriest = "遗忘", VoodooPriest = "巫毒" },
     WARLOCK = { StandardWarlock = "契约", Necromancer = "死灵", ShadowCouncil = "暗影议会", SuccubusFan = "魅魔", LegionCultist = "军团" },

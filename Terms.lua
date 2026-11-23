@@ -137,75 +137,111 @@ AP_Terms["DRUID"] = {
     },
 
     -- ------------------------------------------------------------
-    -- 高阶会：天裔的奥术与学术传统
-    -- 用词偏“星界、秘法、贤者”，把自然法术解释成一种古老的奥术遗产
+    -- 塞纳里奥（暗夜精灵）：月光、翡翠梦境、塞纳里奥议会
+    -- 用词偏“月、林、翡翠”，强调艾露恩与自然的平衡
     -- ------------------------------------------------------------
-    ["Highborne"] = {
+    ["Cenarius"] = {
         -- 变形
-        { category = "变形", official = "熊形态", alias = "守御兽形", note = "以奥术重铸血肉，作为前排的盾。" },
-        { category = "变形", official = "猎豹形态", alias = "猎影兽形" },
-        { category = "变形", official = "旅行形态", alias = "秘径之形" },
-        { category = "变形", official = "枭兽形态", alias = "星枭形态" },
+        { category = "变形", official = "熊形态", alias = "月熊之形" },
+        { category = "变形", official = "猎豹形态", alias = "月影之形" },
+        { category = "变形", official = "旅行形态", alias = "林间之形" },
+        { category = "变形", official = "枭兽形态", alias = "月枭形态" },
         -- 技能
-        { category = "技能", official = "愤怒", alias = "奥能脉冲" },
-        { category = "技能", official = "星火术", alias = "星界之火" },
-        { category = "技能", official = "月火术", alias = "银月弧光" },
-        { category = "技能", official = "纠缠根须", alias = "奥藤咒缚" },
-        { category = "技能", official = "治疗之触", alias = "奥光抚触" },
-        { category = "技能", official = "回春术", alias = "复苏咒" },
-        { category = "技能", official = "愈合", alias = "再生咒印" },
-        { category = "技能", official = "宁静", alias = "静谧法阵", note = "刻在空气里的治愈符文。" },
-        { category = "技能", official = "野性印记", alias = "贤者印记" },
-        { category = "技能", official = "精灵之火", alias = "灵辉标记" },
-        { category = "技能", official = "荆棘术", alias = "秘刺结界" },
-        { category = "技能", official = "飓风", alias = "星界风暴" },
-        { category = "技能", official = "树皮术", alias = "秘壳护体" },
-        { category = "技能", official = "激活", alias = "法力回响" },
-        { category = "技能", official = "复生", alias = "灵魂回响", note = "把还没走远的灵魂重新唤回躯壳。" },
-        { category = "技能", official = "星辰坠落", alias = "星穹倾泻" },
+        { category = "技能", official = "愤怒", alias = "月神之怒" },
+        { category = "技能", official = "星火术", alias = "艾露恩之星" },
+        { category = "技能", official = "月火术", alias = "月华之火" },
+        { category = "技能", official = "纠缠根须", alias = "月藤缠绕" },
+        { category = "技能", official = "治疗之触", alias = "月光抚触" },
+        { category = "技能", official = "回春术", alias = "月露回春" },
+        { category = "技能", official = "愈合", alias = "翡翠愈合" },
+        { category = "技能", official = "宁静", alias = "月夜安眠" },
+        { category = "技能", official = "野性印记", alias = "塞纳里奥之印" },
+        { category = "技能", official = "精灵之火", alias = "月辉标记" },
+        { category = "技能", official = "荆棘术", alias = "月棘" },
+        { category = "技能", official = "飓风", alias = "月风" },
+        { category = "技能", official = "树皮术", alias = "树皮守护" },
+        { category = "技能", official = "激活", alias = "梦境灌注" },
+        { category = "技能", official = "复生", alias = "翡翠归来", note = "沉睡者从梦境里被唤回。" },
+        { category = "技能", official = "星辰坠落", alias = "星陨" },
         -- 天赋
-        { category = "天赋", official = "清晰预兆", alias = "奥术预兆" },
-        { category = "天赋", official = "自然迅捷", alias = "秘法疾行" },
-        { category = "天赋", official = "野性冲锋", alias = "相位突进" },
-        { category = "天赋", official = "月神指引", alias = "星界指引" },
-        { category = "天赋", official = "梦境", alias = "星界梦境" },
-        { category = "天赋", official = "自然之力", alias = "秘法之唤" },
+        { category = "天赋", official = "清晰预兆", alias = "月之预兆" },
+        { category = "天赋", official = "自然迅捷", alias = "月林迅捷" },
+        { category = "天赋", official = "野性冲锋", alias = "月影冲锋" },
+        { category = "天赋", official = "月神指引", alias = "月神低语" },
+        { category = "天赋", official = "梦境", alias = "翡翠之梦" },
+        { category = "天赋", official = "自然之力", alias = "塞纳里奥之唤" },
     },
 
     -- ------------------------------------------------------------
-    -- 塑风者：元素与荒野的原始崇拜
-    -- 用词偏“风、火、大地、水”，把每一招都说成元素借给族人的力量
+    -- 符文图腾（牛头人）：大地母亲、先祖、草原
+    -- 用词偏“大地、图腾、先祖”，招式和部族仪式绑在一起
     -- ------------------------------------------------------------
-    ["Windshaper"] = {
+    ["Runetotem"] = {
         -- 变形
-        { category = "变形", official = "熊形态", alias = "磐岩兽形", note = "大地借给你一副不会倒下的躯体。" },
-        { category = "变形", official = "猎豹形态", alias = "疾风兽形" },
-        { category = "变形", official = "旅行形态", alias = "追风之形" },
-        { category = "变形", official = "枭兽形态", alias = "风枭形态" },
+        { category = "变形", official = "熊形态", alias = "大地之躯" },
+        { category = "变形", official = "猎豹形态", alias = "平原之影" },
+        { category = "变形", official = "旅行形态", alias = "逐风之形" },
+        { category = "变形", official = "枭兽形态", alias = "枭兽之形" },
         -- 技能
-        { category = "技能", official = "愤怒", alias = "雷鸣" },
-        { category = "技能", official = "星火术", alias = "天火" },
-        { category = "技能", official = "月火术", alias = "火灵印记" },
+        { category = "技能", official = "愤怒", alias = "大地震怒" },
+        { category = "技能", official = "星火术", alias = "天穹之火" },
+        { category = "技能", official = "月火术", alias = "先祖之焰" },
         { category = "技能", official = "纠缠根须", alias = "大地之缚" },
-        { category = "技能", official = "治疗之触", alias = "活水抚触" },
-        { category = "技能", official = "回春术", alias = "春风" },
+        { category = "技能", official = "治疗之触", alias = "大地之抚" },
+        { category = "技能", official = "回春术", alias = "春草回生" },
         { category = "技能", official = "愈合", alias = "沃土之赐" },
-        { category = "技能", official = "宁静", alias = "止息之风", note = "风停下的时候，伤口才会开始愈合。" },
-        { category = "技能", official = "野性印记", alias = "元素印记" },
-        { category = "技能", official = "精灵之火", alias = "灵火" },
+        { category = "技能", official = "宁静", alias = "草原安眠" },
+        { category = "技能", official = "野性印记", alias = "图腾之印" },
+        { category = "技能", official = "精灵之火", alias = "先祖之炬" },
         { category = "技能", official = "荆棘术", alias = "石棘" },
-        { category = "技能", official = "飓风", alias = "旋风" },
-        { category = "技能", official = "树皮术", alias = "岩石皮肤" },
-        { category = "技能", official = "激活", alias = "元素灌注" },
-        { category = "技能", official = "复生", alias = "归尘复生" },
+        { category = "技能", official = "飓风", alias = "风暴图腾" },
+        { category = "技能", official = "树皮术", alias = "石肤" },
+        { category = "技能", official = "激活", alias = "生命图腾" },
+        { category = "技能", official = "复生", alias = "先祖归来", note = "先祖把你从长眠里推了回来。" },
+        { category = "技能", official = "星辰坠落", alias = "群星坠地" },
+        -- 天赋
+        { category = "天赋", official = "清晰预兆", alias = "大地预兆" },
+        { category = "天赋", official = "自然迅捷", alias = "平原迅捷" },
+        { category = "天赋", official = "野性冲锋", alias = "科多冲锋" },
+        { category = "天赋", official = "月神指引", alias = "先祖指引" },
+        { category = "天赋", official = "梦境", alias = "先祖之梦" },
+        { category = "天赋", official = "自然之力", alias = "大地之唤" },
+    },
+
+    -- ------------------------------------------------------------
+    -- 洛阿德鲁伊（巨魔）：贡克、丛林、兽形
+    -- 用词偏“洛阿、丛林、巫毒”，带一点野性和交易感
+    -- ------------------------------------------------------------
+    ["Loa"] = {
+        -- 变形
+        { category = "变形", official = "熊形态", alias = "洛阿兽形" },
+        { category = "变形", official = "猎豹形态", alias = "迅猛龙形" },
+        { category = "变形", official = "旅行形态", alias = "丛林之形" },
+        { category = "变形", official = "枭兽形态", alias = "洛阿枭形" },
+        -- 技能
+        { category = "技能", official = "愤怒", alias = "洛阿之怒" },
+        { category = "技能", official = "星火术", alias = "神灵之火" },
+        { category = "技能", official = "月火术", alias = "贡克之印" },
+        { category = "技能", official = "纠缠根须", alias = "丛林藤缚" },
+        { category = "技能", official = "治疗之触", alias = "巫医之触" },
+        { category = "技能", official = "回春术", alias = "洛阿之赐" },
+        { category = "技能", official = "愈合", alias = "再生巫术" },
+        { category = "技能", official = "宁静", alias = "神灵安眠" },
+        { category = "技能", official = "野性印记", alias = "洛阿印记" },
+        { category = "技能", official = "精灵之火", alias = "灵火" },
+        { category = "技能", official = "荆棘术", alias = "棘刺" },
+        { category = "技能", official = "飓风", alias = "丛林风暴" },
+        { category = "技能", official = "树皮术", alias = "兽皮" },
+        { category = "技能", official = "激活", alias = "洛阿灌注" },
+        { category = "技能", official = "复生", alias = "亡者归来", note = "洛阿还没打算收下这个人。" },
         { category = "技能", official = "星辰坠落", alias = "群星之怒" },
         -- 天赋
-        { category = "天赋", official = "清晰预兆", alias = "风之低语" },
-        { category = "天赋", official = "自然迅捷", alias = "疾风祝福" },
-        { category = "天赋", official = "野性冲锋", alias = "风袭" },
-        { category = "天赋", official = "月神指引", alias = "元素指引" },
+        { category = "天赋", official = "清晰预兆", alias = "洛阿低语" },
+        { category = "天赋", official = "自然迅捷", alias = "兽性迅捷" },
+        { category = "天赋", official = "野性冲锋", alias = "猎豹冲锋" },
+        { category = "天赋", official = "月神指引", alias = "贡克指引" },
         { category = "天赋", official = "梦境", alias = "先祖之梦" },
-        { category = "天赋", official = "自然之力", alias = "元素之唤" },
+        { category = "天赋", official = "自然之力", alias = "洛阿之唤" },
     },
 }
 
