@@ -492,7 +492,12 @@ notifyText:SetShadowOffset(1, -1)
 notifyText:SetAlpha(0)
 
 local notifyToken = 0
-function UI.Notify(text, r, g, b)
+local NOTIFY_FONT_SIZE = 16
+local NOTIFY_DURATION = 3.5
+
+-- fontSize / duration 可选：默认用 16 号、3.5 秒；
+-- 熟练度提示会传更大的字号和更长的停留时间。
+function UI.Notify(text, r, g, b, fontSize, duration)
     if not text or text == "" then return end
 
     -- 卡片没显示时退回屏幕中央提示，避免消息丢失
@@ -503,13 +508,14 @@ function UI.Notify(text, r, g, b)
 
     notifyToken = notifyToken + 1
     local token = notifyToken
+    notifyText:SetFont(notifyText:GetFont(), fontSize or NOTIFY_FONT_SIZE, "")
     notifyText:SetText(text)
     notifyText:SetTextColor(r or 1, g or 1, b or 1)
     notifyText:SetAlpha(1)
 
-    -- 3.5 秒后淡出；期间来了新消息就以新消息为准
+    -- 默认 3.5 秒后淡出；期间来了新消息就以新消息为准
     if C_Timer and C_Timer.After then
-        C_Timer.After(3.5, function()
+        C_Timer.After(duration or NOTIFY_DURATION, function()
             if notifyToken == token then notifyText:SetAlpha(0) end
         end)
     end

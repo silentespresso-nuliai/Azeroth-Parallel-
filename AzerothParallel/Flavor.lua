@@ -781,7 +781,8 @@ profFrame:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
     local profMsg = "熟练度提升：" .. (term.alias or term.official) ..
         "  " .. current .. "/" .. maxProf
     if AP_EmoteUI and AP_EmoteUI.Notify then
-        AP_EmoteUI.Notify(profMsg, 0, 0.5, 1)
+        -- 熟练度提示比声望提示更醒目：颜色更深、字号大一点、停留 4.5 秒
+        AP_EmoteUI.Notify(profMsg, 0, 0.38, 0.78, 17, 4.5)
     else
         UIErrorsFrame:AddMessage(profMsg, 0, 0.5, 1, 1)
     end
