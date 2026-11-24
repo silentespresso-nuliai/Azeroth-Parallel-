@@ -72,7 +72,7 @@ AP_MainFrame.CloseButton = closeBtn
 -- ------------------------------------------
 AP_Tabs = {}
 AP_Panels = {}
-local tabNames = { "设定", "职业流派", "奇遇社交", "高光特写" }
+local tabNames = { "设定", "职业流派", "奇遇社交", "核心" }
 local tabLabels = { "设定", "职业\n流派", "奇遇\n社交", "高光\n特写" }
 local tabColors = {
     { 0.27, 0.58, 0.34 },   -- 绿
@@ -112,6 +112,9 @@ local function SelectTab(index)
         end
     end
 end
+
+-- 给其他模块（例如称谓典籍里的“前往核心培养”按钮）切页用
+AP_SelectTab = SelectTab
 
 for i = 1, 4 do
     local c = tabColors[i]
@@ -226,6 +229,16 @@ SlashCmdList["AZEROTHPARALLEL"] = function(msg)
     if cmd == "spotlog" then
         if AP_Spotlight and AP_Spotlight.ToggleDebug then
             AP_Spotlight.ToggleDebug()
+        else
+            print("|cffffd700[AP]|r 高光模块未加载。")
+        end
+        return
+    end
+    -- /AP spotprof N：给当前核心技能加 N 点熟练度（调试用）。
+    -- 例：/AP spotprof 200 直接验证 20 级高光解锁。
+    if cmd == "spotprof" then
+        if AP_Spotlight and AP_Spotlight.AddCoreProf then
+            AP_Spotlight.AddCoreProf(tonumber(arg) or 10)
         else
             print("|cffffd700[AP]|r 高光模块未加载。")
         end

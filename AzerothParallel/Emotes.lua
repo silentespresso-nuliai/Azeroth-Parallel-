@@ -916,8 +916,15 @@ local function HasHostileTarget()
     return enemy and true or false
 end
 
+-- 是不是核心技能：是的话交给高光，正面形象不出现；
+-- 不是核心技能才显示正面形象。两边互不抑制。
+local function IsCoreSpellCast(spellID)
+    return AP_Spotlight and AP_Spotlight.IsCoreSpell and AP_Spotlight.IsCoreSpell(spellID)
+end
+
 -- 起手用高光技能时，让高光模块跳过这一次，避免和 3D 模型同时出现
 local function MaybeSuppressSpotlight(spellID)
+    if IsCoreSpellCast(spellID) then return end
     if not spellID or shownThisCombat then return end
     if not EnsureEmoteDB().showModel or not card:IsShown() then return end
     -- 只针对战斗中或对敌对目标的起手，避免误伤脱战治疗/增益的高光
@@ -959,13 +966,18 @@ castEventFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID)
     if unit and unit ~= "player" then return end
 
     if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
-        MaybeSuppressSpotlight(spellID)
-        TryShowFirstCombatCast()
+        -- 核心技能：不放正面形象，高光由 Spotlight 自己处理
+        if not IsCoreSpellCast(spellID) then
+            MaybeSuppressSpotlight(spellID)
+            TryShowFirstCombatCast()
+        end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- 瞬发技能可能没有 START：第一次施法成功时也触发一次
-        MaybeSuppressSpotlight(spellID)
-        TryShowFirstCombatCast()
-        HideCastModelSoon(2.5)
+        if not IsCoreSpellCast(spellID) then
+            MaybeSuppressSpotlight(spellID)
+            TryShowFirstCombatCast()
+            HideCastModelSoon(2.5)
+        end
     else
         -- 施法被中断/失败时清掉待用的高光抑制
         AP_SuppressSpotlightSpell = nil

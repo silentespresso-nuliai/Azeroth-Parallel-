@@ -75,9 +75,9 @@ local function SetMatchingRegions(frame, officialName, alias, depth)
     end
 end
 
-local function ApplyAlias(alias, officialName)
+local function ApplyAlias(alias, officialName, force)
     if not alias then return end
-    if not (AP_TooltipAlias and AP_TooltipAlias.IsEnabled and AP_TooltipAlias.IsEnabled()) then return end
+    if not force and not (AP_TooltipAlias and AP_TooltipAlias.IsEnabled and AP_TooltipAlias.IsEnabled()) then return end
 
     for _, barName in ipairs(BAR_NAMES) do
         local bar = _G[barName]
@@ -98,7 +98,7 @@ local function IsPlayerCasting()
     return false
 end
 
-local currentAlias, currentOfficialName, sinceLastApply = nil, nil, 0
+local currentAlias, currentOfficialName, currentForce, sinceLastApply = nil, nil, false, 0
 
 local ticker = CreateFrame("Frame")
 ticker:Hide()
@@ -113,23 +113,23 @@ ticker:SetScript("OnUpdate", function(self, elapsed)
     sinceLastApply = 0
 
     if not IsPlayerCasting() then
-        currentAlias, currentOfficialName = nil, nil
+        currentAlias, currentOfficialName, currentForce = nil, nil, false
         self:Hide()
         return
     end
 
-    ApplyAlias(currentAlias, currentOfficialName)
+    ApplyAlias(currentAlias, currentOfficialName, currentForce)
 end)
 
-local function StartAlias(alias, officialName)
-    currentAlias, currentOfficialName = alias, officialName
+local function StartAlias(alias, officialName, force)
+    currentAlias, currentOfficialName, currentForce = alias, officialName, force and true or false
     sinceLastApply = 0
-    ApplyAlias(alias, officialName) -- 先立刻试一次，之后由 ticker 持续压住刷新
+    ApplyAlias(alias, officialName, currentForce) -- 先立刻试一次，之后由 ticker 持续压住刷新
     ticker:Show()
 end
 
 local function StopAlias()
-    currentAlias, currentOfficialName = nil, nil
+    currentAlias, currentOfficialName, currentForce = nil, nil, false
     sinceLastApply = 0
     ticker:Hide()
 end
@@ -166,20 +166,36 @@ frame:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         return
     end
 
-    if not (AP_TooltipAlias and AP_TooltipAlias.IsEnabled and AP_TooltipAlias.IsEnabled()) then
+    -- 核心技能 15 级后改的名优先级最高：即使 tooltip 开关关闭，施法条也显示新名字
+    local force = false
+    local spotlightDB = AP_DB and AP_DB.spotlight
+    local coreSpell = spotlightDB and spotlightDB.coreSpell
+    local coreAlias = spotlightDB and spotlightDB.coreAlias
+    if coreSpell and coreSpell ~= "" and coreAlias and coreAlias ~= ""
+        and AP_Spotlight and AP_Spotlight.IsCoreSpell and spellID then
+        local okCore, isCore = pcall(AP_Spotlight.IsCoreSpell, spellID)
+        if okCore and isCore then force = true end
+    end
+
+    local enabledNow = AP_TooltipAlias and AP_TooltipAlias.IsEnabled and AP_TooltipAlias.IsEnabled()
+    if not enabledNow and not force then
         StopAlias()
         return
     end
 
     local alias, name, officialName
-
-    -- 新客户端事件参数里直接带 spellID
-    if spellID and AP_TooltipAlias.GetAliasForID then
-        alias = AP_TooltipAlias.GetAliasForID(spellID)
-    end
-    if spellID and AP_TooltipAlias.GetNameForID then
-        local n = AP_TooltipAlias.GetNameForID(spellID)
-        if n and not IsSecret(n) then officialName = n end
+    if force then
+        alias = coreAlias
+        officialName = coreSpell
+    else
+        -- 新客户端事件参数里直接带 spellID
+        if spellID and AP_TooltipAlias.GetAliasForID then
+            alias = AP_TooltipAlias.GetAliasForID(spellID)
+        end
+        if spellID and AP_TooltipAlias.GetNameForID then
+            local n = AP_TooltipAlias.GetNameForID(spellID)
+            if n and not IsSecret(n) then officialName = n end
+        end
     end
 
     -- 旧客户端或参数缺失时，用当前施法名称兜底
@@ -197,7 +213,7 @@ frame:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
     lastInfo = { spellID = spellID, name = officialName or name, alias = alias }
 
     if alias then
-        StartAlias(alias, officialName)
+        StartAlias(alias, officialName, force)
     else
         StopAlias()
     end

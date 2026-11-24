@@ -582,6 +582,17 @@ spellText:SetFont(spellText:GetFont(), 16, "")
 spellText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 spellScrollFrame:Hide()
 
+-- 称谓典籍 → 核心培养：点一下直接切到第 4 个「核心」页
+local coreJumpBtn = CreateFrame("Button", nil, RightPage, "UIPanelButtonTemplate")
+coreJumpBtn:SetSize(260, 26)
+coreJumpBtn:SetPoint("BOTTOM", RightPage, "BOTTOM", 0, 26)
+coreJumpBtn:SetText("前往核心培养")
+coreJumpBtn:Hide()
+coreJumpBtn:SetScript("OnClick", function()
+    if AP_MainFrame then AP_MainFrame:Show() end
+    if AP_SelectTab then AP_SelectTab(4) end
+end)
+
 -- 未实装职业提示：玩家自己的职业还没有流派数据时，在右页底部说明一句，
 -- 避免让人以为插件坏了或者列表空了。默认隐藏，由 UI.Refresh 控制。
 local classNotice = RightPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -827,16 +838,30 @@ function UI.RefreshSpellBook(previewData)
                 table.insert(lines, (lastCategory and "\n" or "") .. "|cff8c261a【" .. term.category .. "】|r")
                 lastCategory = term.category
             end
+            -- 核心技能 15 级后改过的名字，同步显示在称谓典籍里
+            local displayAlias = term.alias
+            local coreLevelForTerm
+            local spotlightDB = AP_DB.spotlight
+            if showProf and spotlightDB and spotlightDB.coreSpell == term.official then
+                local prof = AP_DB.flavor.skillProf or {}
+                coreLevelForTerm = math.min(30, math.floor(((prof[term.official] or 0) / 10)) + 1)
+                if type(spotlightDB.coreAlias) == "string" and spotlightDB.coreAlias ~= "" then
+                    displayAlias = spotlightDB.coreAlias
+                end
+            end
+
             -- 一行：绿色 = 本流派称呼，灰色 = 官方原名，方便对照
-            table.insert(lines, "|cff3f6b2e" .. (term.alias or "?") .. "|r |cff6b5a45（官方：" .. (term.official or "?") .. "）|r")
+            table.insert(lines, "|cff3f6b2e" .. (displayAlias or "?") .. "|r |cff6b5a45（官方：" .. (term.official or "?") .. "）|r")
             -- 有备注的话，缩进一行灰字补一句说明
             if term.note and term.note ~= "" then
                 table.insert(lines, "|cff6b5a45　　" .. term.note .. "|r")
             end
             -- 熟练度（天赋是被动的，不显示；预览别的职业时也不显示）
             if showProf and term.category ~= "天赋" then
+                local coreTag = coreLevelForTerm
+                    and ("  |cff8c261a核心 Lv." .. coreLevelForTerm .. "|r") or ""
                 table.insert(lines, "|cff6b5a45　　熟练度：|r" ..
-                    FormatProfBar(GetSkillProf(term.official), GetMaxSkillProf()))
+                    FormatProfBar(GetSkillProf(term.official), GetMaxSkillProf()) .. coreTag)
             end
         end
         spellText:SetText(table.concat(lines, "\n"))
@@ -988,11 +1013,22 @@ function UI.Refresh()
         end
 
         UI.RefreshSpellBook(previewData)
+
+        -- 只有预览自己职业、且已经选了核心技能时，才显示跳转入口
+        local spotlightDB = AP_DB.spotlight
+        if spotlightDB and spotlightDB.coreSpell and spotlightDB.coreSpell ~= ""
+            and AP_DB.flavor.previewClass == AP_DB.flavor.currentClass then
+            coreJumpBtn:SetText("核心培养：" .. spotlightDB.coreSpell .. " →")
+            coreJumpBtn:Show()
+        else
+            coreJumpBtn:Hide()
+        end
     else
         iconFrame:Show()
         scrollFrame:Show()
         spellScrollFrame:Hide()
         tooltipToggle:Hide()
+        coreJumpBtn:Hide()
     end
 
     badgeIcon:SetTexture(previewData.icon or FALLBACK_ICON)
