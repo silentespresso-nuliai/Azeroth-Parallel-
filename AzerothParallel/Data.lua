@@ -38,7 +38,7 @@ AP_FlavorData = {
             {
                 id = "Cenarius",
                 name = "塞纳里奥",
-                -- 流派主题色：高光特写优先用它，不配则回退职业色
+                -- 流派主题色：核心奥义高光优先用它，不配则回退职业色
                 themeColor = { r = 0.34, g = 0.72, b = 0.46 }, -- 月林绿
                 reqFaction = "Alliance",
                 races = { "NightElf" }, -- 暗夜精灵

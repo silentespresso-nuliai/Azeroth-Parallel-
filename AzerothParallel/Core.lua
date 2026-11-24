@@ -72,7 +72,7 @@ AP_MainFrame.CloseButton = closeBtn
 -- ------------------------------------------
 AP_Tabs = {}
 AP_Panels = {}
-local tabNames = { "设定", "职业流派", "奇遇社交", "核心" }
+local tabNames = { "设定", "职业流派", "预留", "核心奥义" }
 local tabLabels = { "设定", "职业\n流派", "奇遇\n社交", "高光\n特写" }
 local tabColors = {
     { 0.27, 0.58, 0.34 },   -- 绿
@@ -224,7 +224,7 @@ SlashCmdList["AZEROTHPARALLEL"] = function(msg)
         end
         return
     end
-    -- /AP spotlog：开关“高光特写”的调试日志。
+    -- /AP spotlog：开关“核心奥义”的调试日志。
     -- 开启后每次成功施法都会在聊天框打印技能 ID 和名字，用来校对高光技能表。
     if cmd == "spotlog" then
         if AP_Spotlight and AP_Spotlight.ToggleDebug then

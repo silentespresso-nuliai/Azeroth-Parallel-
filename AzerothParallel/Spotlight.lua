@@ -23,7 +23,12 @@ local function EnsureDB()
     if type(db.soundIndex) ~= "number" or db.soundIndex < 0 or db.soundIndex > 3 then
         db.soundIndex = 0
     end
-    if db.broadcast == nil then db.broadcast = true end
+    -- 广播开关不再在界面里提供，默认始终开启，保证团队/小队能看到彼此的高光
+    db.broadcast = true
+    -- 释放间距（分钟）：1~10，默认 1 分钟
+    if type(db.cooldownMinutes) ~= "number" or db.cooldownMinutes < 1 or db.cooldownMinutes > 10 then
+        db.cooldownMinutes = 1
+    end
     if db.position ~= "TOPLEFT" and db.position ~= "TOPRIGHT" then
         db.position = "TOPRIGHT"
     end
@@ -361,12 +366,15 @@ local CUSTOM_SOUNDS = {
     "Interface\\AddOns\\AzerothParallel\\Media\\sounds\\sound3.ogg",
 }
 
+-- 记录当前正在播放的高光音效，下一次触发时先停掉旧的，避免连续试放时叠成一团
+local lastSpotSoundHandle
+
 local function PlaySpotSound(kind, force)
     EnsureDB()
     if not AP_DB.spotlight.sound then return end
-    -- 30 级才解锁本地音效；试放时 force 绕过等级限制
+    -- 30 级才解锁本地音效；试放同样遵守，低等级不白给声音
     local coreSpell = GetCoreSpellName()
-    if coreSpell and not force and GetCoreLevel() < 30 then return end
+    if coreSpell and GetCoreLevel() < 30 then return end
 
     -- 优先随机播放自定义音效；老客户端没有 PlaySoundFile 时才退回内置音
     if type(PlaySoundFile) == "function" and #CUSTOM_SOUNDS > 0 then
@@ -377,9 +385,18 @@ local function PlaySpotSound(kind, force)
         else
             path = CUSTOM_SOUNDS[math.random(#CUSTOM_SOUNDS)] -- 随机
         end
+        -- 先停掉上一个高光音效，保证同一时间只有一个在响
+        if lastSpotSoundHandle and type(StopSound) == "function" then
+            pcall(StopSound, lastSpotSoundHandle)
+            lastSpotSoundHandle = nil
+        end
         -- 新版带声道参数，老版没有；失败也保持自定义音，避免和内置音叠在一起
-        if not pcall(PlaySoundFile, path, "Master") then
-            pcall(PlaySoundFile, path)
+        local ok, _, handle = pcall(PlaySoundFile, path, "Master")
+        if not ok then
+            ok, _, handle = pcall(PlaySoundFile, path)
+        end
+        if ok and type(handle) == "number" then
+            lastSpotSoundHandle = handle
         end
         return
     end
@@ -388,9 +405,18 @@ local function PlaySpotSound(kind, force)
     if kind == "EPIC" then id = SoundKitID("UI_EPICLOOT_TOAST") end
     id = id or SoundKitID("LEVEL_UP") or 888 -- 888 是升级音最常见的 ID，作为最后兜底
     if type(PlaySound) ~= "function" then return end
+
+    if lastSpotSoundHandle and type(StopSound) == "function" then
+        pcall(StopSound, lastSpotSoundHandle)
+        lastSpotSoundHandle = nil
+    end
     -- 新版 PlaySound 第二个参数是声道，老版没有；失败就退回单参数
-    if not pcall(PlaySound, id, "Master") then
-        pcall(PlaySound, id)
+    local ok, _, handle = pcall(PlaySound, id, "Master")
+    if not ok then
+        ok, _, handle = pcall(PlaySound, id)
+    end
+    if ok and type(handle) == "number" then
+        lastSpotSoundHandle = handle
     end
 end
 
@@ -398,7 +424,7 @@ end
 -- 4. 特效层：一个可复用的 Frame + 贴图 + 动画
 -- ==========================================
 local spot = CreateFrame("Frame", "AP_SpotlightFrame", UIParent, "BackdropTemplate")
-spot:SetSize(520, 180)
+spot:SetSize(440, 150)
 spot:SetFrameStrata("HIGH")
 spot:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -415,9 +441,9 @@ local function ApplyPosition()
     EnsureDB()
     spot:ClearAllPoints()
     if AP_DB.spotlight.position == "TOPLEFT" then
-        spot:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 30, -230)
+        spot:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 30, -250)
     else
-        spot:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -30, -230)
+        spot:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -30, -250)
     end
 end
 ApplyPosition()
@@ -433,43 +459,43 @@ accent:SetColorTexture(0.83, 0.69, 0.22, 1)
 local glow = spot:CreateTexture(nil, "BACKGROUND")
 glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
 glow:SetBlendMode("ADD")
-glow:SetSize(190, 190)
-glow:SetPoint("LEFT", spot, "LEFT", 42, 0)
+glow:SetSize(170, 170)
+glow:SetPoint("LEFT", spot, "LEFT", 34, 0)
 glow:SetVertexColor(0.83, 0.69, 0.22, 0.8)
 
 -- 头像本体：用 SetPortraitTexture 临时“拍”一张当前角色头像，不依赖外部图片
 local portrait = spot:CreateTexture(nil, "ARTWORK")
-portrait:SetSize(110, 110)
-portrait:SetPoint("LEFT", spot, "LEFT", 30, 0)
+portrait:SetSize(96, 96)
+portrait:SetPoint("LEFT", spot, "LEFT", 22, 0)
 pcall(portrait.SetMaskTexture, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask")
 
 -- 自定义立绘：叠在头像上面。图片文件不存在时只会透出下面的头像，不会变成空白。
 -- 必须是 .tga / .blp；PNG 不会被加载。尺寸与头像一致，保持 110×110。
 local portraitImage = spot:CreateTexture(nil, "ARTWORK")
-portraitImage:SetSize(110, 110)
-portraitImage:SetPoint("LEFT", spot, "LEFT", 30, 0)
+portraitImage:SetSize(96, 96)
+portraitImage:SetPoint("LEFT", spot, "LEFT", 22, 0)
 portraitImage:Hide()
 
 -- 四角星闪光：旋转 + 淡出，放在头像右上角
 local spark = spot:CreateTexture(nil, "OVERLAY")
 spark:SetTexture("Interface\\Cooldown\\star4")
 spark:SetBlendMode("ADD")
-spark:SetSize(70, 70)
-spark:SetPoint("TOPRIGHT", portrait, "TOPRIGHT", 16, 18)
+spark:SetSize(60, 60)
+spark:SetPoint("TOPRIGHT", portrait, "TOPRIGHT", 12, 14)
 spark:SetVertexColor(1, 0.95, 0.7, 1)
 
 -- 大字：第一行名字，第二行技能短名（技能名用职业色）
 local mainText = spot:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-mainText:SetPoint("TOPLEFT", spot, "TOPLEFT", 170, -40)
-mainText:SetWidth(325)
+mainText:SetPoint("TOPLEFT", spot, "TOPLEFT", 140, -30)
+mainText:SetWidth(280)
 mainText:SetJustifyH("CENTER")
-mainText:SetFont(mainText:GetFont(), 24, "OUTLINE")
+mainText:SetFont(mainText:GetFont(), 21, "OUTLINE")
 mainText:SetSpacing(8)
 mainText:SetText("")
 
 -- 底部小字：装饰用，告诉屏幕前的你“这是高光时刻”
 local subText = spot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-subText:SetPoint("BOTTOM", spot, "BOTTOM", 92, 20)
+subText:SetPoint("BOTTOM", spot, "BOTTOM", 80, 16)
 subText:SetFont(subText:GetFont(), 12, "OUTLINE")
 subText:SetText("|cff888888—— 高 光 时 刻 ——|r")
 
@@ -479,9 +505,9 @@ local streakLines, streakGroups = {}, {}
 for i = 1, 9 do
     local line = spot:CreateTexture(nil, "BORDER")
     line:SetHeight((i % 3 == 0) and 3 or 2)
-    local width = 70 + (i * 37) % 170
+    local width = 60 + (i * 31) % 140
     line:SetWidth(width)
-    line:SetPoint("TOPLEFT", spot, "TOPLEFT", 40 + (i * 53) % 280, -16 - (i - 1) * 17)
+    line:SetPoint("TOPLEFT", spot, "TOPLEFT", 20 + (i * 40) % 160, -12 - (i - 1) * 14)
     line:SetBlendMode("ADD")
     line:SetColorTexture(1, 0.95, 0.8, 1)
     line:SetAlpha(0)
@@ -814,19 +840,25 @@ end
 -- ==========================================
 -- 多个队友同时开爆发时，每人占用一个槽位，绝不互相覆盖。
 -- 位置固定在屏幕右侧竖排：主特写下方，1 号最上，5 号最下。
--- 想整体挪位置只改 REMOTE_SLOT_BASE_Y；想改大小只改宽高和间距。
+-- 五个固定区域：右上、右中、左上、左中、中上
+-- 想改大小只改宽高；想挪区域改 SLOT_POINTS。
 local REMOTE_SLOTS = 5
-local REMOTE_SLOT_WIDTH = 320
-local REMOTE_SLOT_HEIGHT = 88
-local REMOTE_SLOT_GAP = 8
-local REMOTE_SLOT_BASE_Y = -430 -- 主特写（180 高）下沿再往下留一点
+local REMOTE_SLOT_WIDTH = 440
+local REMOTE_SLOT_HEIGHT = 150
+local SLOT_POINTS = {
+    { "TOPRIGHT", -20, -250 }, -- 1 右上，和左上同高
+    { "RIGHT",    -20, 0 },    -- 2 右中
+    { "TOPLEFT",   20, -250 }, -- 3 左上，和右上同高
+    { "LEFT",      20, 0 },    -- 4 左中
+    { "TOP",        0, -250 }, -- 5 中央顶部
+}
 
 local remoteSlots = {}
 for i = 1, REMOTE_SLOTS do
     local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     f:SetSize(REMOTE_SLOT_WIDTH, REMOTE_SLOT_HEIGHT)
-    f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20,
-        REMOTE_SLOT_BASE_Y - (i - 1) * (REMOTE_SLOT_HEIGHT + REMOTE_SLOT_GAP))
+    local p = SLOT_POINTS[i] or SLOT_POINTS[REMOTE_SLOTS]
+    f:SetPoint(p[1], UIParent, p[1], p[2], p[3])
     f:SetFrameStrata("HIGH")
     f:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -846,16 +878,16 @@ for i = 1, REMOTE_SLOTS do
     accent:SetColorTexture(1, 1, 1, 1)
 
     local portrait = f:CreateTexture(nil, "ARTWORK")
-    portrait:SetSize(64, 64)
-    portrait:SetPoint("LEFT", f, "LEFT", 14, 0)
+    portrait:SetSize(96, 96)
+    portrait:SetPoint("LEFT", f, "LEFT", 22, 0)
     pcall(portrait.SetMaskTexture, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask")
 
     local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    text:SetPoint("TOPLEFT", f, "TOPLEFT", 90, -16)
-    text:SetWidth(REMOTE_SLOT_WIDTH - 104)
+    text:SetPoint("TOPLEFT", f, "TOPLEFT", 140, -24)
+    text:SetWidth(REMOTE_SLOT_WIDTH - 160)
     text:SetJustifyH("LEFT")
-    text:SetSpacing(4)
-    text:SetFont(text:GetFont(), 15, "OUTLINE")
+    text:SetSpacing(6)
+    text:SetFont(text:GetFont(), 18, "OUTLINE")
 
     remoteSlots[i] = {
         frame = f,
@@ -867,8 +899,22 @@ for i = 1, REMOTE_SLOTS do
     }
 end
 
+-- 队友槽位顺序：第二次一定和自己相反方向，然后右中、左中，最后中央顶部
+local function GetRemoteSlotOrder()
+    EnsureDB()
+    local pos = AP_DB.spotlight.position
+    if pos == "TOPLEFT" then
+        -- 自己在左上：右上、右中、左中、中央顶部
+        return { 1, 2, 4, 5 }
+    elseif pos == "TOPRIGHT" then
+        -- 自己在右上：左上、右中、左中、中央顶部
+        return { 3, 2, 4, 5 }
+    end
+    return { 1, 2, 3, 4, 5 }
+end
+
 -- 显示一条远程高光：先找空槽，5 个全满就复用最早到期的那个
-local function ShowRemoteHighlight(name, label, classToken, unitToken)
+local function ShowRemoteHighlight(name, label, classToken, unitToken, forcedIndex)
     EnsureDB()
     if not AP_DB.spotlight.enabled then return end
     -- 组队限制由 OnAddonMessage 入口处理；调试接口 /run 仍可直接调用
@@ -881,16 +927,23 @@ local function ShowRemoteHighlight(name, label, classToken, unitToken)
     local now = Now()
 
     local slot
-    for i = 1, REMOTE_SLOTS do
-        if not remoteSlots[i].frame:IsShown() then
-            slot = remoteSlots[i]
-            break
+    if forcedIndex and remoteSlots[forcedIndex] then
+        slot = remoteSlots[forcedIndex]
+    else
+        local order = GetRemoteSlotOrder()
+        for _, idx in ipairs(order) do
+            if not remoteSlots[idx].frame:IsShown() then
+                slot = remoteSlots[idx]
+                break
+            end
         end
-    end
-    if not slot then
-        slot = remoteSlots[1]
-        for i = 2, REMOTE_SLOTS do
-            if remoteSlots[i].expireAt < slot.expireAt then slot = remoteSlots[i] end
+        if not slot then
+            slot = remoteSlots[order[1]]
+            for _, idx in ipairs(order) do
+                if remoteSlots[idx].expireAt < slot.expireAt then
+                    slot = remoteSlots[idx]
+                end
+            end
         end
     end
 
@@ -983,9 +1036,7 @@ end
 local lastCastAt = {}
 local lastShowAt = 0
 
--- 本地触发的默认间隔（秒）：防止月火术这类高频技能每次都弹高光。
--- 想改长短只改这一个数；设为 0 表示不限制。试放按钮不受这个限制。
-local TRIGGER_COOLDOWN = 60
+-- 本地触发间隔由玩家在右页「释放间距」调整（1~10 分钟）
 local lastTriggerAt = 0
 
 -- 调试日志：默认关闭。游戏里输入 /AP spotlog 可开关。
@@ -1151,12 +1202,13 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
         return
     end
 
-    -- 默认触发间隔：60 秒内只弹一次，避免高频技能刷屏
-    if TRIGGER_COOLDOWN > 0 and lastTriggerAt > 0
-        and now - lastTriggerAt < TRIGGER_COOLDOWN then
+    -- 触发间隔：按玩家设置，1~10 分钟
+    local cooldownMinutes = math.max(1, math.min(10, tonumber(AP_DB.spotlight.cooldownMinutes) or 1))
+    local cooldownSec = cooldownMinutes * 60
+    if lastTriggerAt > 0 and now - lastTriggerAt < cooldownSec then
         if debugEnabled then
             DebugPrint("触发间隔中，剩余约 "
-                .. math.ceil(TRIGGER_COOLDOWN - (now - lastTriggerAt)) .. " 秒")
+                .. math.ceil(cooldownSec - (now - lastTriggerAt)) .. " 秒")
         end
         return
     end
@@ -1172,7 +1224,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     -- ===== 核心技能培养的等级门槛 =====
     if custom then
         -- 1 级解锁喊话（用户可以关掉）
-        if coreLevel >= 1 then
+        if coreLevel >= 5 then
             DoSpotChat()
         end
         -- 20 级才出现高光；不到 20 级只喊话，不弹特写、不广播
@@ -1193,11 +1245,12 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
 end)
 
 -- ==========================================
--- 8. 设置页（第 4 个 Tab：高光特写）
+-- 8. 设置页（第 4 个 Tab：核心奥义）
 -- ==========================================
 -- 先占个名字，面板创建成功后再换成真正的刷新函数（供 /AP 调试和以后扩展调用）
 local RefreshSkillList = function() end
 local RefreshCoreUI -- 核心技能培养视图的刷新函数，UI 块里赋值
+local previewBtn, posBtn
 
 local panel = AP_Panels and AP_Panels[4]
 if panel and panel.LeftPage and panel.RightPage then
@@ -1207,7 +1260,7 @@ if panel and panel.LeftPage and panel.RightPage then
     title:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -30)
     title:SetFont(title:GetFont(), 24, "")
     title:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    title:SetText("核心")
+    title:SetText("核心奥义")
 
     -- ==========================================
     -- 左页重做：核心技能培养
@@ -1480,7 +1533,7 @@ if panel and panel.LeftPage and panel.RightPage then
         return valueFS, btn
     end
 
-    local chatValue, chatRowBtn = MakeToggleRow(right, "1 级 · 施放核心技能时喊话", -110,
+    local chatValue, chatRowBtn = MakeToggleRow(right, "5 级 · 施放核心技能时喊话", -126,
         ChatToggleText, function()
             AP_DB.spotlight.coreChatEnabled = not AP_DB.spotlight.coreChatEnabled
         end)
@@ -1490,7 +1543,7 @@ if panel and panel.LeftPage and panel.RightPage then
 
     local chatInput = CreateFrame("EditBox", nil, right, "BackdropTemplate")
     chatInput:SetSize(198, 28)
-    chatInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -132)
+    chatInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -148)
     chatInput:SetFontObject("GameFontNormal")
     chatInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     chatInput:SetTextInsets(6, 6, 0, 0)
@@ -1516,24 +1569,16 @@ if panel and panel.LeftPage and panel.RightPage then
     end)
     chatInput:SetScript("OnEditFocusLost", SaveChatText)
 
-    local chatHint = right:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    chatHint:SetPoint("TOPLEFT", chatInput, "BOTTOMLEFT", 0, -4)
-    chatHint:SetWidth(340)
-    chatHint:SetJustifyH("LEFT")
-    chatHint:SetFont(chatHint:GetFont(), 12, "")
-    chatHint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-    chatHint:SetText("普通文本会大喊；输入 /moon 这类表情命令会按表情执行；触发时先发一条 /e 预告。")
-
     -- ---------- 15 级：改名 ----------
     local aliasLabel = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    aliasLabel:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -190)
+    aliasLabel:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -206)
     aliasLabel:SetFont(aliasLabel:GetFont(), 14, "")
     aliasLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     aliasLabel:SetText("15 级 · 修改核心技能名字")
 
     local aliasInput = CreateFrame("EditBox", nil, right, "BackdropTemplate")
     aliasInput:SetSize(240, 28)
-    aliasInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -212)
+    aliasInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -228)
     aliasInput:SetFontObject("GameFontNormal")
     aliasInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     aliasInput:SetTextInsets(6, 6, 0, 0)
@@ -1577,14 +1622,14 @@ if panel and panel.LeftPage and panel.RightPage then
 
     -- ---------- 20 级：高光状态 ----------
     local highLightStatus = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    highLightStatus:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -256)
+    highLightStatus:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -272)
     highLightStatus:SetWidth(340)
     highLightStatus:SetJustifyH("LEFT")
     highLightStatus:SetFont(highLightStatus:GetFont(), 13, "")
     highLightStatus:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
     -- ---------- 30 级：本地音效 ----------
-    local soundValue, soundRowBtn = MakeToggleRow(right, "30 级 · 本地音效", -292,
+    local soundValue, soundRowBtn = MakeToggleRow(right, "30 级 · 本地音效", -308,
         SoundButtonText, CycleSound)
     soundRowBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -1603,6 +1648,16 @@ if panel and panel.LeftPage and panel.RightPage then
     local enableValue, enableRowBtn = MakeToggleRow(right, "高光系统", -62, EnableText, function()
         AP_DB.spotlight.enabled = not AP_DB.spotlight.enabled
     end)
+
+    local cooldownValue, cooldownRowBtn = MakeToggleRow(right, "释放间距", -94,
+        function()
+            return (AP_DB.spotlight.cooldownMinutes or 1) .. " 分钟"
+        end,
+        function()
+            local value = (AP_DB.spotlight.cooldownMinutes or 1) + 1
+            if value > 10 then value = 1 end
+            AP_DB.spotlight.cooldownMinutes = value
+        end)
 
     -- ---------- 视图刷新 ----------
     local function FillChooseList()
@@ -1650,6 +1705,8 @@ if panel and panel.LeftPage and panel.RightPage then
             coreFrame:Hide()
             descLabel:Hide()
             coreDescInput:Hide()
+            if previewBtn then previewBtn:Hide() end
+            if posBtn then posBtn:Hide() end
             FillChooseList()
             return
         end
@@ -1658,6 +1715,8 @@ if panel and panel.LeftPage and panel.RightPage then
         coreFrame:Show()
         descLabel:Show()
         coreDescInput:Show()
+        if previewBtn then previewBtn:Show() end
+        if posBtn then posBtn:Show() end
 
         local level = GetCoreLevel()
         local points = GetCorePoints()
@@ -1681,14 +1740,14 @@ if panel and panel.LeftPage and panel.RightPage then
             return "|cff8c261a还需 " .. (n - level) .. " 级|r"
         end
         unlockText:SetText(
-            "1 级 · 施放核心技能时喊话    " .. LevelState(1) .. "\n" ..
+            "5 级 · 施放核心技能时喊话    " .. LevelState(5) .. "\n" ..
             "15 级 · 修改核心技能名字    " .. LevelState(15) .. "\n" ..
             "20 级 · 高光时刻    " .. LevelState(20) .. "\n" ..
             "30 级 · 本地音效    " .. LevelState(30)
         )
 
-        chatInput:SetEnabled(level >= 1)
-        chatRowBtn:SetEnabled(level >= 1)
+        chatInput:SetEnabled(level >= 5)
+        chatRowBtn:SetEnabled(level >= 5)
         chatValue:SetText(ChatToggleText())
 
         aliasInput:SetEnabled(level >= 15)
@@ -1702,6 +1761,7 @@ if panel and panel.LeftPage and panel.RightPage then
         end
         enableValue:SetText(EnableText())
         scopeValue:SetText(ScopeText())
+        cooldownValue:SetText((AP_DB.spotlight.cooldownMinutes or 1) .. " 分钟")
 
         if level >= 20 then
             highLightStatus:SetText("|cff3f6b2e20 级 · 高光时刻：已解锁|r")
@@ -1746,7 +1806,13 @@ if panel and panel.LeftPage and panel.RightPage then
     end
     RefreshCoreUI()
     -- 试放按钮：不用真进战斗，点一下就能看特效（不会喊话）
-    local previewBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
+    -- 连续试放的计数：2 秒内连续点，第 2 次开始用组队槽位，第 5 次触发彩蛋
+    local previewCount = 0
+    local lastPreviewAt = 0
+    local lastPreviewSoundAt = 0
+    local eggShown = false
+
+    previewBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
     previewBtn:SetSize(150, 30)
     previewBtn:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 30, 20)
     previewBtn:SetText("试放我的高光")
@@ -1768,16 +1834,49 @@ if panel and panel.LeftPage and panel.RightPage then
         end
         -- 试放同样走核心技能改名的优先级
         local displayLabel = GetCoreDisplayLabel(official, label)
-        ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
-            previewID and PORTRAIT_IMAGES[previewID], true)
-        -- 试放也把喊话带上，方便一次看完整效果
-        DoSpotChat()
+        local now = GetTime()
+        if now - lastPreviewAt > 2 then
+            previewCount = 0
+            eggShown = false
+        end
+        lastPreviewAt = now
+        if previewCount < 5 then previewCount = previewCount + 1 end
+
+        if previewCount == 5 then
+            if not eggShown then
+                eggShown = true
+                -- 第 5 个放中央顶部，内容换成阿尔萨斯彩蛋
+                ShowRemoteHighlight("阿尔萨斯", "去死吧，父亲", "DEATHKNIGHT", nil, 5)
+                PlaySpotSound("EPIC", true)
+            end
+            return
+        end
+
+        if previewCount == 1 then
+            ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
+                previewID and PORTRAIT_IMAGES[previewID], true)
+            -- 第一次试放带上喊话
+            DoSpotChat()
+        else
+            -- 第 2～4 个队友按自己位置避让后的顺序摆位
+            local order = GetRemoteSlotOrder()
+            local slotIndex = order[previewCount - 1] or 5
+            ShowRemoteHighlight("试放队友 " .. previewCount, displayLabel, classToken, nil, slotIndex)
+            -- 音效错开，避免叠在一起
+            local delay = math.max(0, 0.18 - (now - lastPreviewSoundAt))
+            lastPreviewSoundAt = now + delay
+            if delay > 0 then
+                After(delay, function() PlaySpotSound("EPIC", true) end)
+            else
+                PlaySpotSound("EPIC", true)
+            end
+        end
     end)
     -- 放在左页最上层，避免被核心卡片/选择列表挡住点击
     previewBtn:SetFrameLevel(left:GetFrameLevel() + 30)
 
     -- 位置切换：右上 / 左上
-    local posBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
+    posBtn = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
     posBtn:SetSize(140, 28)
     posBtn:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 192, 21)
     posBtn:SetFrameLevel(left:GetFrameLevel() + 30)
@@ -1787,6 +1886,9 @@ if panel and panel.LeftPage and panel.RightPage then
         ApplyPosition()
         self:SetText(AP_DB.spotlight.position == "TOPLEFT" and "位置：左上" or "位置：右上")
     end)
+
+    -- 两个按钮创建完成后再刷一次，决定未选核心技能时是否隐藏
+    RefreshCoreUI()
 
     -- 右页：本职业的触发技能清单（只读）
     local rightTitle = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
@@ -1876,7 +1978,7 @@ AP_Spotlight = {
         EnsureDB()
         local official = GetCoreSpellName()
         if not official then
-            print("|cffffd700[AP]|r 请先在「高光特写」左页选择一个核心技能。")
+            print("|cffffd700[AP]|r 请先在「核心奥义」左页选择一个核心技能。")
             return
         end
         AP_DB.flavor = AP_DB.flavor or {}

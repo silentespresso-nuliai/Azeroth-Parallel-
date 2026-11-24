@@ -1,38 +1,48 @@
 -- ==========================================
--- Peers.lua: 同好名录（奇遇社交页）
+-- Peers.lua: 同好名录（设定页 →「奇遇社交」分页）
 -- ==========================================
 -- 只读取 Network.lua 收到的 RP 名字缓存（AP_DB.peers），
 -- 全部控件都是本插件自己创建的，不碰暴雪姓名版/单位框架，
 -- 所以不会产生 secret/taint 问题。
 
-local panel = AP_Panels[3]
-local LeftPage = panel.LeftPage
-local RightPage = panel.RightPage
+local settingPanel = AP_Panels and AP_Panels[1]
+local page = AP_PeersSettingsPage
+if not (settingPanel and page) then return end
 
--- 左页：标题与说明
-local title = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-title:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -20)
+-- ---------- 设定页左页入口 ----------
+local entryBtn = CreateFrame("Button", nil, settingPanel.LeftPage, "UIPanelButtonTemplate")
+entryBtn:SetSize(200, 36)
+-- 聊天弹幕 40、表情动作 -10、正面形象 -60，这里排在第四个
+entryBtn:SetPoint("CENTER", settingPanel.LeftPage, "CENTER", 0, -110)
+entryBtn:SetText("奇遇社交")
+entryBtn:SetScript("OnClick", function()
+    if AP_SelectSettingsTab then AP_SelectSettingsTab("peers") end
+end)
+if AP_RegisterSettingsEntry then AP_RegisterSettingsEntry(entryBtn) end
+
+-- ---------- 右页「奇遇社交」分页 ----------
+local title = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+title:SetPoint("TOPLEFT", page, "TOPLEFT", 30, -2)
 title:SetText("同好名录")
-title:SetFont(title:GetFont(), 26, "")
+title:SetFont(title:GetFont(), 20, "")
 title:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 
-local desc = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-desc:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -65)
-desc:SetWidth(360)
+local desc = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+desc:SetPoint("TOPLEFT", page, "TOPLEFT", 30, -34)
+desc:SetWidth(340)
 desc:SetJustifyH("LEFT")
-desc:SetSpacing(8)
-desc:SetFont(desc:GetFont(), 15, "")
+desc:SetSpacing(5)
+desc:SetFont(desc:GetFont(), 13, "")
 desc:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-desc:SetText("这里会列出：装了本插件、并且和你在同一个小队/团队/公会里出现过的玩家。\n\n" ..
-    "名字和流派来自对方插件广播的数据；对方没装插件、或不在同一聊天范围时不会出现。\n\n" ..
-    "|cff6b5a45仅保存在本机，不会上传到任何服务器。|r")
+desc:SetText("装了本插件、并且和你在同一个小队 / 团队 / 公会里出现过的玩家会列在这里。\n" ..
+    "|cff6b5a45名字和流派来自对方插件的广播；仅保存在本机，不会上传。|r")
 
 -- 开关：和 /AP net 共用同一个状态
-local toggle = CreateFrame("CheckButton", "AP_PeersToggle", LeftPage, "ChatConfigCheckButtonTemplate")
-toggle:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -275)
+local toggle = CreateFrame("CheckButton", "AP_PeersToggle", page, "ChatConfigCheckButtonTemplate")
+toggle:SetPoint("TOPLEFT", page, "TOPLEFT", 30, -96)
 local toggleText = _G[toggle:GetName() .. "Text"]
 toggleText:SetText("接收同好名录")
-toggleText:SetFont(toggleText:GetFont(), 16, "")
+toggleText:SetFont(toggleText:GetFont(), 15, "")
 toggleText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
 toggle:SetScript("OnClick", function(self)
     local on = self:GetChecked() and true or false
@@ -41,27 +51,16 @@ toggle:SetScript("OnClick", function(self)
     end
 end)
 
--- 统计与提示
-local status = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-status:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -320)
-status:SetWidth(360)
+local status = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+status:SetPoint("TOPLEFT", page, "TOPLEFT", 30, -132)
+status:SetWidth(340)
 status:SetJustifyH("LEFT")
-status:SetFont(status:GetFont(), 14, "")
-status:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+status:SetFont(status:GetFont(), 12, "")
+status:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
 
-local hint = LeftPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-hint:SetPoint("TOPLEFT", LeftPage, "TOPLEFT", 20, -360)
-hint:SetWidth(360)
-hint:SetJustifyH("LEFT")
-hint:SetFont(hint:GetFont(), 13, "")
-hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-hint:SetText("|cff6b5a45可输入 /AP net on 或 /AP net off 快速切换。\n" ..
-    "姓名版改写在新客户端会被系统禁止，所以改用这份名录展示。|r")
-
--- 右页：可滚动列表
-local scrollFrame = CreateFrame("ScrollFrame", nil, RightPage, "UIPanelScrollFrameTemplate")
-scrollFrame:SetSize(340, 480)
-scrollFrame:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 30, -30)
+local scrollFrame = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+scrollFrame:SetSize(340, 300)
+scrollFrame:SetPoint("TOPLEFT", page, "TOPLEFT", 30, -158)
 local scrollChild = CreateFrame("Frame", nil, scrollFrame)
 scrollFrame:SetScrollChild(scrollChild)
 scrollChild:SetWidth(300)
@@ -71,9 +70,17 @@ local listText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 listText:SetPoint("TOPLEFT", 0, 0)
 listText:SetWidth(300)
 listText:SetJustifyH("LEFT")
-listText:SetSpacing(10)
-listText:SetFont(listText:GetFont(), 16, "")
+listText:SetSpacing(8)
+listText:SetFont(listText:GetFont(), 15, "")
 listText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+
+local hint = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+hint:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 30, 10)
+hint:SetWidth(340)
+hint:SetJustifyH("LEFT")
+hint:SetFont(hint:GetFont(), 11, "")
+hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+hint:SetText("|cff6b5a45可输入 /AP net on 或 /AP net off 快速切换。|r")
 
 local function GetDisplay(peer)
     local name = peer.name or "?"
@@ -129,10 +136,8 @@ local function Refresh()
     status:SetText(string.format("已记录 %d 位同好。", #list))
 end
 
--- 每次切到“奇遇社交”页时自动刷新
-panel:SetScript("OnShow", function()
-    Refresh()
-end)
+-- 每次切到「奇遇社交」分页时自动刷新
+page:SetScript("OnShow", Refresh)
 
 AP_PeersUI = { Refresh = Refresh }
 
