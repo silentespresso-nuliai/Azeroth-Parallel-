@@ -181,10 +181,11 @@ AP_ModelSettingsPage = modelRightPage
 AP_PeersSettingsPage = peersRightPage
 AP_SelectSettingsTab = SelectRightTab
 
--- 入口按钮登记表保留，但不再隐藏入口；所有按钮都只切右页。
+-- 左页入口已取消：导航只保留右页顶部的分页按钮，
+-- 所有登记进来的左页按钮统一隐藏（保留这个接口，避免其他模块报错）。
 AP_SettingsEntryFrames = AP_SettingsEntryFrames or {}
 function AP_RegisterSettingsEntry(frame)
-    table.insert(AP_SettingsEntryFrames, frame)
+    if frame then frame:Hide() end
 end
 AP_CloseDanmakuSettings = function() end
 
