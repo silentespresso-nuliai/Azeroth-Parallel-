@@ -16,8 +16,14 @@ local _, realClassToken = UnitClass("player")
 AP_DB.flavor.currentClass = realClassToken
 AP_DB.flavor.previewClass = AP_DB.flavor.previewClass or realClassToken
 
--- 是否把称谓反映到游戏内的鼠标提示（只改 tooltip 第一行，安全开关，默认关）
-AP_DB.flavor.tooltipAlias = AP_DB.flavor.tooltipAlias and true or false
+-- 是否把称谓反映到游戏内的鼠标提示（只改 tooltip 第一行，安全开关）
+-- 默认开启一次；旧存档里的 false 会迁移成 true，之后尊重玩家自己的开关。
+if AP_DB.flavor.aliasDefaultApplied ~= true then
+    AP_DB.flavor.tooltipAlias = true
+    AP_DB.flavor.aliasDefaultApplied = true
+elseif AP_DB.flavor.tooltipAlias == nil then
+    AP_DB.flavor.tooltipAlias = true
+end
 
 if not AP_DB.flavor.currentFaction or AP_DB.flavor.currentFaction == "" then
     AP_DB.flavor.currentFaction = "Nightclaw"
@@ -518,7 +524,7 @@ local showingSpellBook = false
 local spellBookBtn = CreateFrame("Button", nil, leftContent, "UIPanelButtonTemplate")
 spellBookBtn:SetSize(180, 30)
 spellBookBtn:SetPoint("TOP", leftContent, "TOP", 0, -368)
-spellBookBtn:SetText("称谓典籍（技能/天赋）")
+spellBookBtn:SetText("称谓典籍")
 spellBookBtn:SetScript("OnClick", function()
     showingSpellBook = not showingSpellBook
     UI.Refresh()
@@ -565,6 +571,20 @@ tooltipToggle:SetScript("OnClick", function(self)
 end)
 tooltipToggle:Hide() -- 只在“称谓典籍”模式下显示
 
+-- 登录后再同步一次：防止存档在 UI 创建之后才注入，导致复选框显示成未勾选
+local aliasSyncFrame = CreateFrame("Frame")
+aliasSyncFrame:RegisterEvent("PLAYER_LOGIN")
+aliasSyncFrame:SetScript("OnEvent", function()
+    if AP_DB.flavor.aliasDefaultApplied ~= true then
+        AP_DB.flavor.tooltipAlias = true
+        AP_DB.flavor.aliasDefaultApplied = true
+    elseif AP_DB.flavor.tooltipAlias == nil then
+        AP_DB.flavor.tooltipAlias = true
+    end
+    tooltipToggle:SetChecked(AP_DB.flavor.tooltipAlias and true or false)
+    if AP_TooltipAlias then AP_TooltipAlias.SetEnabled(AP_DB.flavor.tooltipAlias) end
+end)
+
 -- 称谓典籍的滚动区：和“流派介绍”共用右页，同一时间只显示其中一个。
 -- 顶部要给上面的开关留位置，所以从 -72 开始。
 local spellScrollFrame = CreateFrame("ScrollFrame", nil, RightPage, "UIPanelScrollFrameTemplate")
@@ -593,6 +613,27 @@ coreJumpBtn:Hide()
 coreJumpBtn:SetScript("OnClick", function()
     if AP_MainFrame then AP_MainFrame:Show() end
     if AP_SelectTab then AP_SelectTab(4) end
+end)
+
+-- 流派介绍 → 特效预览：收起书本，显示当前预览流派的特效 1.5 秒后恢复
+local auraPreviewBtn = CreateFrame("Button", nil, leftContent, "UIPanelButtonTemplate")
+auraPreviewBtn:SetSize(180, 30)
+auraPreviewBtn:SetPoint("TOP", spellBookBtn, "BOTTOM", 0, -10)
+auraPreviewBtn:SetText("特效预览")
+auraPreviewBtn:SetScript("OnClick", function()
+    local classToken = AP_DB.flavor.previewClass
+    local factionID = AP_DB.flavor.previewFaction
+    if AP_MainFrame then AP_MainFrame:Hide() end
+    if AP_Aura and AP_Aura.Preview then
+        AP_Aura.Preview(classToken, factionID, 1.5)
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(1.6, function()
+            if AP_MainFrame then AP_MainFrame:Show() end
+        end)
+    else
+        if AP_MainFrame then AP_MainFrame:Show() end
+    end
 end)
 
 -- 未实装职业提示：玩家自己的职业还没有流派数据时，在右页底部说明一句，
@@ -897,7 +938,7 @@ local lastShownFactionID = nil
 
 function UI.Refresh()
     -- 按钮文字跟着右页模式走：已经在典籍里，就提示可以返回
-    spellBookBtn:SetText(showingSpellBook and "返回流派介绍" or "称谓典籍（技能/天赋）")
+    spellBookBtn:SetText(showingSpellBook and "返回流派介绍" or "称谓典籍")
 
     -- 自己的职业没有数据时，右页底部显示“撰写中”提示
     if classNotice then

@@ -496,6 +496,19 @@ SlashCmdList["AZEROTHPARALLEL"] = function(msg)
         end
         return
     end
+    -- /AP frost：开关核心 40 级冰霜环绕；/AP frost preview 强制预览 5 秒
+    if cmd == "frost" then
+        if AP_Aura then
+            if arg == "preview" and AP_Aura.Preview then
+                AP_Aura.Preview()
+            elseif AP_Aura.Toggle then
+                AP_Aura.Toggle()
+            end
+        else
+            print("|cffffd700[AP]|r 冰霜特效模块未加载。")
+        end
+        return
+    end
     -- 如果没加参数，或者输入其他内容，就开关面板
     if AP_MainFrame:IsShown() then AP_MainFrame:Hide() else AP_MainFrame:Show() end
 end

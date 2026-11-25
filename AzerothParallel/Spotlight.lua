@@ -193,14 +193,14 @@ local function GetCoreSpellName()
     return value
 end
 
--- 培养等级：每 10 点熟练度升 1 级，1 级起步，最高 30 级。
+-- 培养等级：每 7.5 点熟练度升 1 级，1 级起步，最高 40 级。
 -- 熟练度数据与「称谓典籍」共用 AP_DB.flavor.skillProf，不另存一份。
 local function GetCoreLevel()
     local official = GetCoreSpellName()
     if not official then return 0 end
     local prof = AP_DB.flavor and AP_DB.flavor.skillProf
     local points = (prof and prof[official]) or 0
-    return math.min(30, math.floor(points / 10) + 1)
+    return math.min(40, math.floor(points / 7.5) + 1)
 end
 
 local function GetCorePoints()
@@ -1241,6 +1241,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     -- 本机按技能 ID 找立绘；远程队友不会加载你的图片文件，所以不加进广播
     local imagePath = info.id and PORTRAIT_IMAGES[info.id]
     ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", info.sound, imagePath)
+    -- 高光触发成功时同步开启本流派特效；释放间距沿用高光那一套
+    if AP_Aura and AP_Aura.Trigger then
+        AP_Aura.Trigger(classToken, AP_DB.flavor and AP_DB.flavor.currentFaction)
+    end
     BroadcastHighlight(classToken, displayLabel)
 end)
 
@@ -1641,6 +1645,19 @@ if panel and panel.LeftPage and panel.RightPage then
     end)
     soundRowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- ---------- 40 级：流派施放特效 ----------
+    local function AuraText()
+        if not (AP_Aura and AP_Aura.IsUnlocked and AP_Aura.IsUnlocked()) then
+            return "未解锁"
+        end
+        return (AP_Aura.IsEnabled and AP_Aura.IsEnabled()) and "开启" or "关闭"
+    end
+
+    local auraValue, auraRowBtn = MakeToggleRow(right, "40 级 · 施放特效", -340,
+        AuraText, function()
+            if AP_Aura and AP_Aura.Toggle then AP_Aura.Toggle() end
+        end)
+
     -- ---------- 触发范围 / 高光总开关 ----------
     local scopeValue, scopeRowBtn = MakeToggleRow(right, "触发范围", -30, ScopeText, function()
         AP_DB.spotlight.groupOnly = not AP_DB.spotlight.groupOnly
@@ -1731,7 +1748,7 @@ if panel and panel.LeftPage and panel.RightPage then
             displayName = AP_DB.spotlight.coreAlias
         end
         coreName:SetText("【" .. displayName .. "】")
-        coreLevelText:SetText("核心 Lv." .. level .. " / 30    熟练度 " .. points .. "/" .. maxProf)
+        coreLevelText:SetText("核心 Lv." .. level .. " / 40    熟练度 " .. points .. "/" .. maxProf)
         coreIcon:SetTexture(GetCoreSpellIcon(official))
         coreDescInput:SetText(AP_DB.spotlight.coreDesc or "")
 
@@ -1743,7 +1760,8 @@ if panel and panel.LeftPage and panel.RightPage then
             "5 级 · 施放核心技能时喊话    " .. LevelState(5) .. "\n" ..
             "15 级 · 修改核心技能名字    " .. LevelState(15) .. "\n" ..
             "20 级 · 高光时刻    " .. LevelState(20) .. "\n" ..
-            "30 级 · 本地音效    " .. LevelState(30)
+            "30 级 · 本地音效    " .. LevelState(30) .. "\n" ..
+            "40 级 · 施放特效    " .. LevelState(40)
         )
 
         chatInput:SetEnabled(level >= 5)
@@ -1775,6 +1793,8 @@ if panel and panel.LeftPage and panel.RightPage then
         else
             soundValue:SetText("未解锁")
         end
+        auraValue:SetText(AuraText())
+        auraRowBtn:SetEnabled(level >= 40 and AP_Aura ~= nil)
     end
 
     -- 重练：清空该技能的熟练度和核心技能选择
@@ -1834,43 +1854,37 @@ if panel and panel.LeftPage and panel.RightPage then
         end
         -- 试放同样走核心技能改名的优先级
         local displayLabel = GetCoreDisplayLabel(official, label)
-        local now = GetTime()
-        if now - lastPreviewAt > 2 then
-            previewCount = 0
-            eggShown = false
-        end
-        lastPreviewAt = now
-        if previewCount < 5 then previewCount = previewCount + 1 end
 
-        if previewCount == 5 then
-            if not eggShown then
-                eggShown = true
-                -- 第 5 个放中央顶部，内容换成阿尔萨斯彩蛋
-                ShowRemoteHighlight("阿尔萨斯", "去死吧，父亲", "DEATHKNIGHT", nil, 5)
-                PlaySpotSound("EPIC", true)
-            end
-            return
+        -- 书本界面会挡住特效，先收起；整个序列结束后再恢复
+        if AP_MainFrame then AP_MainFrame:Hide() end
+        if AP_Aura and AP_Aura.Trigger then
+            AP_Aura.Trigger(classToken, AP_DB.flavor and AP_DB.flavor.currentFaction, true)
         end
 
-        if previewCount == 1 then
-            ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
-                previewID and PORTRAIT_IMAGES[previewID], true)
-            -- 第一次试放带上喊话
-            DoSpotChat()
-        else
-            -- 第 2～4 个队友按自己位置避让后的顺序摆位
-            local order = GetRemoteSlotOrder()
-            local slotIndex = order[previewCount - 1] or 5
-            ShowRemoteHighlight("试放队友 " .. previewCount, displayLabel, classToken, nil, slotIndex)
-            -- 音效错开，避免叠在一起
-            local delay = math.max(0, 0.18 - (now - lastPreviewSoundAt))
-            lastPreviewSoundAt = now + delay
-            if delay > 0 then
-                After(delay, function() PlaySpotSound("EPIC", true) end)
-            else
+        -- 第 1 个：自己
+        ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
+            previewID and PORTRAIT_IMAGES[previewID], true)
+        DoSpotChat()
+
+        -- 依次模拟另外四名队友，音效互斥错开
+        local order = GetRemoteSlotOrder()
+        local function ShowTeammate(n, delay)
+            After(delay, function()
+                local idx = order[n - 1] or 5
+                ShowRemoteHighlight("试放队友 " .. n, displayLabel, classToken, nil, idx)
                 PlaySpotSound("EPIC", true)
-            end
+            end)
         end
+        ShowTeammate(2, 0.9)
+        ShowTeammate(3, 1.8)
+        ShowTeammate(4, 2.7)
+        After(3.6, function()
+            ShowRemoteHighlight("阿尔萨斯", "去死吧，父亲", "DEATHKNIGHT", nil, 5)
+            PlaySpotSound("EPIC", true)
+        end)
+        After(6.5, function()
+            if AP_MainFrame then AP_MainFrame:Show() end
+        end)
     end)
     -- 放在左页最上层，避免被核心卡片/选择列表挡住点击
     previewBtn:SetFrameLevel(left:GetFrameLevel() + 30)
