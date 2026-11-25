@@ -52,6 +52,14 @@ bookArt:SetTexCoord(0, BOOK_W / TEX_SIZE, 0, BOOK_H / TEX_SIZE)
 bookArt:SetVertexColor(0.84, 0.78, 0.70)
 AP_MainFrame.bookArt = bookArt
 
+-- 书本主题花纹：四个 Deco 都是 1024 画布、图案在左上 900×650 区域，
+-- 所以使用和 Book.tga 完全相同的 TexCoord 裁切，跟随当前页签切换。
+local decoArt = AP_MainFrame:CreateTexture(nil, "BORDER")
+decoArt:SetAllPoints()
+decoArt:SetTexCoord(0, BOOK_W / TEX_SIZE, 0, BOOK_H / TEX_SIZE)
+decoArt:SetTexture(MEDIA .. "Deco_1.tga")
+AP_MainFrame.decoArt = decoArt
+
 -- 兼容旧代码：以前的 BasicFrameTemplate 带有 TitleBg / title / CloseButton，
 -- 其他文件如果引用过，这里给出隐藏的替身，避免报 nil
 AP_MainFrame.TitleBg = AP_MainFrame:CreateTexture(nil, "BACKGROUND")
@@ -74,11 +82,20 @@ AP_Tabs = {}
 AP_Panels = {}
 local tabNames = { "设定", "职业流派", "预留", "核心奥义" }
 local tabLabels = { "设定", "职业\n流派", "奇遇\n社交", "高光\n特写" }
+-- 顺序对应：设定 / 职业流派 / 奇遇社交 / 高光特写
 local tabColors = {
-    { 0.27, 0.58, 0.34 },   -- 绿
-    { 0.70, 0.17, 0.15 },   -- 红
-    { 0.48, 0.28, 0.66 },   -- 紫
-    { 0.56, 0.56, 0.60 },   -- 灰
+    { 0.70, 0.17, 0.15 },   -- 红：设定（龙纹）
+    { 0.27, 0.58, 0.34 },   -- 绿：职业流派（藤蔓）
+    { 0.48, 0.28, 0.66 },   -- 紫：奇遇社交（巴洛克卷叶）
+    { 0.56, 0.56, 0.60 },   -- 蓝灰：高光特写（星芒）
+}
+
+-- 页签花纹：按用户指定的 Deco_1..4 对应关系
+local tabDeco = {
+    "Deco_2.tga", -- 设定：龙纹
+    "Deco_1.tga", -- 职业流派：藤蔓
+    "Deco_3.tga", -- 奇遇社交：巴洛克卷叶
+    "Deco_4.tga", -- 高光特写：星芒
 }
 
 local TAB_W, TAB_H = 46, 104
@@ -102,6 +119,11 @@ local function ApplyTabLayout(tab)
 end
 
 local function SelectTab(index)
+    -- 换页签时，整本书的花纹一起换
+    if AP_MainFrame.decoArt and tabDeco[index] then
+        AP_MainFrame.decoArt:SetTexture(MEDIA .. tabDeco[index])
+    end
+
     for i = 1, #AP_Tabs do
         AP_Tabs[i].isSelected = (i == index)
         ApplyTabLayout(AP_Tabs[i])
