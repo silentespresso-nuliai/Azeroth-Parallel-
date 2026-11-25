@@ -294,7 +294,9 @@ local FRAME_H = gridH + PAD * 2 + TITLE_AREA - 8
 -- 这样右上角 × 只会隐藏「表情面板」本身，上面的名牌和属性条会继续留在屏幕上。
 local card = CreateFrame("Frame", "AP_EmoteCard", UIParent)
 card:SetSize(FRAME_W, FRAME_H)
-card:SetFrameStrata("HIGH")
+-- MEDIUM：让暴雪自带的窗口（任务/地图/人物属性/专业等，通常在 HIGH/DIALOG）
+-- 盖在表情动作卡片之上，不再遮住这些窗口的底部。
+card:SetFrameStrata("MEDIUM")
 card:SetClampedToScreen(true)
 card:SetMovable(true)
 card:Hide()
@@ -303,7 +305,8 @@ UI.card = card
 -- 真正的表情图标面板：铺满卡片，× 按钮关掉的就是它
 local frame = CreateFrame("Frame", "AP_EmoteFrame", card, "BackdropTemplate")
 frame:SetAllPoints(card)
-frame:SetFrameStrata("HIGH")
+-- 跟随卡片，保持在暴雪窗口下方
+frame:SetFrameStrata("MEDIUM")
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetBackdrop({
@@ -522,7 +525,7 @@ function UI.Notify(text, r, g, b, fontSize, duration)
 end
 
 -- ==========================================
--- 正面形象：姓名卡片上方的 3D 实时模型
+-- 正面形象：屏幕左下方的 3D 实时模型（可 Shift 拖动）
 -- 注意：PlayerModel 的镜头会随窗口高度一起放大，单纯加高只会把脸放得更大、
 -- 并不会显示更多身体，所以这里用屏幕内放得下的高度，改为把镜头拉远。
 -- ==========================================
@@ -530,10 +533,11 @@ local MODEL_W = 720 -- 宽度再放大 0.5 倍（480 → 720）
 local MODEL_H = 660 -- 再高一点，方便 Shift 拖到合适位置
 local modelFrame = CreateFrame("Frame", nil, card, "BackdropTemplate")
 modelFrame:SetSize(MODEL_W, MODEL_H)
-modelFrame:SetFrameStrata("HIGH")
--- 层级抬高：模型要压在姓名牌、属性条的文字之上，避免卡片的字挡住人物。
--- 卡片里的子控件默认和 card 同级，只抬高模型这一层，不影响其他界面。
-modelFrame:SetFrameLevel(card:GetFrameLevel() + 30)
+-- 同样用 MEDIUM：暴雪窗口（HIGH/DIALOG）会压住模型，模型本身点击穿透。
+modelFrame:SetFrameStrata("MEDIUM")
+-- 在 MEDIUM 内部用很高的 FrameLevel：
+-- 这样能盖住聊天框、动作条等普通 UI，又不越过暴雪窗口所在的 HIGH/DIALOG。
+modelFrame:SetFrameLevel(5000)
 -- 不要背景：只显示人物，空白区域透明，不会再有黑框/空白问题
 modelFrame:Hide()
 
@@ -548,13 +552,25 @@ local function SaveModelPosition()
 end
 
 local function RestoreModelPosition()
-    local pos = EnsureEmoteDB().modelPos
+    local db = EnsureEmoteDB()
+
+    -- 一次性作废旧版自由位置，改用新的“屏幕左下角 + 约 3cm”默认位置
+    if db.modelPosVersion ~= 1 then
+        db.modelPos = nil
+        db.modelPosVersion = 1
+    end
+
+    local pos = db.modelPos
     modelFrame:ClearAllPoints()
     if pos and pos[1] then
         local anchor = (pos[2] == "card") and card or UIParent
         modelFrame:SetPoint(pos[1], anchor, pos[3], pos[4], pos[5])
     else
-        modelFrame:SetPoint("BOTTOM", nameplate, "TOP", 0, 8)
+        -- 贴图底边紧贴屏幕底部，左侧向右留约 3 厘米。
+        -- 按屏幕宽度的 1/16 估算 3cm（常见 16:9 显示器宽度约 48cm），
+        -- 这样不同分辨率下都接近 3 厘米，而不是写死像素。
+        local edgeGap = (UIParent:GetWidth() or 1920) / 16
+        modelFrame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", edgeGap, 0)
     end
 end
 UI.RestoreModelPosition = RestoreModelPosition
@@ -1456,7 +1472,9 @@ local PICKER_H = PICKER_LIST_TOP + PICKER_MAX_ROWS * PICKER_ROW_H + 10
 
 picker = CreateFrame("Frame", "AP_EmotePicker", frame, "BackdropTemplate")
 picker:SetSize(PICKER_W, PICKER_H)
-picker:SetFrameStrata("DIALOG")
+-- 跟卡片一起留在暴雪窗口下方；只抬高自己的层级，保证浮在卡片之上
+picker:SetFrameStrata("MEDIUM")
+picker:SetFrameLevel(6000)
 picker:SetClampedToScreen(true)
 picker:EnableMouse(true) -- 挡住点击，避免点穿到后面的面板
 picker:SetBackdrop({
