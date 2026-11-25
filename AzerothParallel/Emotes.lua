@@ -425,6 +425,9 @@ plateFaction:SetWidth(FRAME_W - 16)
 plateFaction:SetJustifyH("CENTER")
 plateFaction:SetFont(plateFaction:GetFont(), 15, "")
 
+-- 第一个小图标（核心奥义）在下面才创建；这里先声明，供名牌刷新时同步流派图标
+local coreIcon
+
 -- 从职业流派模块（Data.lua / Flavor.lua）读取当前角色的数据。
 -- 注意：Emotes.lua 比 Data.lua 先加载，所以这里只能等到「打开面板时」再读，
 -- 不能在文件加载阶段就访问 AP_FlavorData。
@@ -437,14 +440,15 @@ local function UpdateNameplate()
         rpName = UnitName("player") or "冒险者"
     end
 
-    -- 第二行：当前职业流派名 + 颜色
-    local factionName, color
+    -- 第二行：当前职业流派名 + 颜色；同时记下流派图标
+    local factionName, color, factionIcon
     local classData = AP_FlavorData and AP_FlavorData[flavor.currentClass]
     if classData then
         for _, f in ipairs(classData.factions or {}) do
             if f.id == flavor.currentFaction then
                 factionName = f.name
                 color = f.themeColor or f.color
+                factionIcon = f.icon
                 break
             end
         end
@@ -454,6 +458,7 @@ local function UpdateNameplate()
             if first then
                 factionName = first.name
                 color = first.themeColor or first.color
+                factionIcon = first.icon
             end
         end
         color = color or classData.classColor
@@ -466,6 +471,11 @@ local function UpdateNameplate()
     -- 浅色主题（任务羊皮纸）下把流派颜色压暗一点，保证在亮背景上看得清
     if currentTheme.light then
         color = { r = color.r * 0.55, g = color.g * 0.55, b = color.b * 0.55 }
+    end
+
+    -- 第一个小图标用当前流派图标，和职业流派页保持一致
+    if coreIcon and coreIcon.texture then
+        coreIcon.texture:SetTexture(factionIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
     end
 
     plateName:SetText(rpName)
@@ -1256,6 +1266,7 @@ local function MakeMiniButton(index, icon, tooltipText, onClick)
     tex:SetPoint("BOTTOMRIGHT", -2, 2)
     tex:SetTexture(icon)
     tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    btn.texture = tex -- 允许之后动态换图标（第一个小图标跟随流派）
 
     btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 
@@ -1274,16 +1285,10 @@ local function MakeMiniButton(index, icon, tooltipText, onClick)
     return btn
 end
 
--- 1) 正面形象：直接打开「设定 → 正面形象」页
--- 图标用玩家自己的职业图标，避免之前的人头/骨灰感
-local portraitIcon = "Interface\\Icons\\INV_Misc_QuestionMark"
-local okClass, _, classToken = pcall(UnitClass, "player")
-if okClass and classToken then
-    portraitIcon = "Interface\\Icons\\ClassIcon_" .. classToken
-end
-MakeMiniButton(1, portraitIcon,
-    "正面形象：打开设定页", function()
-        UI.OpenModelSettings()
+-- 1) 核心奥义：图标与当前流派图标一致，点击打开核心页（不播放高光）
+coreIcon = MakeMiniButton(1, "Interface\\Icons\\INV_Misc_QuestionMark",
+    "核心奥义：打开核心页", function()
+        UI.OpenCoreSettings()
     end)
 
 -- 2) 属性：显示 / 隐藏下面的属性条
@@ -1686,6 +1691,17 @@ function UI.OpenModelSettings()
         AP_Tabs[1]:Click() -- 切到「设定」
     end
     if AP_SelectSettingsTab then AP_SelectSettingsTab("model") end
+end
+
+-- 从卡片第一个图标打开「核心奥义」页；只打开页面，不播放高光
+function UI.OpenCoreSettings()
+    if AP_MainFrame then AP_MainFrame:Show() end
+    if AP_Tabs and AP_Tabs[4] and AP_Tabs[4].Click then
+        AP_Tabs[4]:Click() -- 第 4 页 = 核心奥义
+    end
+    if AP_Spotlight and AP_Spotlight.RefreshCoreUI then
+        AP_Spotlight.RefreshCoreUI()
+    end
 end
 
 function UI.Hide()
