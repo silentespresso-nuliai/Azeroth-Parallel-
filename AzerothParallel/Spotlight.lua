@@ -1186,6 +1186,12 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
         -- 记下真实 spellID，之后图标可以直接取这个技能的原图标
         if spellID and type(spellID) == "number" then
             AP_DB.spotlight.coreSpellID = spellID
+            -- 第一次施放会补上 ID；如果面板开着，顺手刷新球池里的图标
+            local panel4 = AP_Panels and AP_Panels[4]
+            if panel4 and panel4.LeftPage and panel4.LeftPage:IsVisible()
+                and AP_Spotlight and AP_Spotlight.RefreshCoreUI then
+                AP_Spotlight.RefreshCoreUI()
+            end
         end
     else
         -- ===== 默认模式：按职业表匹配 =====
@@ -1405,13 +1411,44 @@ if panel and panel.LeftPage and panel.RightPage then
         return nil
     end
 
+    -- 按技能名反查 spellID：旧客户端 GetSpellInfo 的第 7 个返回值就是 ID。
+    -- 重选技能时按钮上可能没有 ID，用它补上，避免图标退化成职业图标。
+    local function TrySpellIDByName(name)
+        if type(name) ~= "string" or name == "" then return nil end
+        if type(GetSpellInfo) == "function" then
+            local ok, _, _, _, _, _, _, spellID = pcall(GetSpellInfo, name)
+            if ok and type(spellID) == "number" then return spellID end
+        end
+        return nil
+    end
+
+    -- 按技能名直接取图标：旧客户端 GetSpellTexture 允许传名字
+    local function TrySpellTextureByName(name)
+        if type(name) ~= "string" or name == "" then return nil end
+        if C_Spell and C_Spell.GetSpellTexture then
+            local ok, tex = pcall(C_Spell.GetSpellTexture, name)
+            if ok and tex then return tex end
+        end
+        if type(GetSpellTexture) == "function" then
+            local ok, tex = pcall(GetSpellTexture, name)
+            if ok and tex then return tex end
+        end
+        return nil
+    end
+
     local function GetCoreSpellIcon(official)
         EnsureDB()
         -- 1) 施放时记录过 spellID 的，直接取原图标，最准
         local tex = TrySpellTexture(AP_DB.spotlight.coreSpellID)
         if tex then return tex end
 
-        -- 2) 法术书 / 旧版天赋树扫描到的技能
+        -- 2) 刚重选、还没施放过的技能没有 ID，按名字取一次图标
+        tex = TrySpellTextureByName(official)
+        if tex then return tex end
+        tex = TrySpellTexture(TrySpellIDByName(official))
+        if tex then return tex end
+
+        -- 3) 法术书 / 旧版天赋树扫描到的技能
         local info = BuildSpellBookInfoMap()[official]
         if info then
             tex = TrySpellTexture(info.spellID)
@@ -1445,42 +1482,90 @@ if panel and panel.LeftPage and panel.RightPage then
         chooseButtons[i] = btn
     end
 
-    -- ---------- 已选：核心技能卡片 ----------
-    local coreCard = CreateFrame("Frame", nil, coreFrame, "BackdropTemplate")
-    coreCard:SetSize(340, 100)
-    coreCard:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -58)
-    coreCard:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    coreCard:SetBackdropColor(1, 0.96, 0.85, 0.55)
-    coreCard:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
-
-    local coreIcon = coreCard:CreateTexture(nil, "ARTWORK")
-    coreIcon:SetSize(32, 32)
-    coreIcon:SetPoint("TOP", coreCard, "TOP", 0, -8)
-    coreIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-
-    local coreName = coreCard:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    coreName:SetPoint("TOP", coreCard, "TOP", 0, -44)
+    -- ---------- 已选：核心技能名（图标移进球池中心） ----------
+    -- 原来头顶那块带图标的小卡片不要了，只在球池上方留一行技能名。
+    local coreName = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    coreName:SetPoint("TOP", coreFrame, "TOP", 0, -66)
     coreName:SetWidth(300)
     coreName:SetJustifyH("CENTER")
     coreName:SetFont(coreName:GetFont(), 20, "OUTLINE")
     coreName:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     coreName:SetText("核心技能")
 
-    local coreLevelText = coreCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    coreLevelText:SetPoint("TOP", coreCard, "TOP", 0, -70)
-    coreLevelText:SetWidth(300)
-    coreLevelText:SetJustifyH("CENTER")
-    coreLevelText:SetFont(coreLevelText:GetFont(), 13, "")
-    coreLevelText:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-    coreLevelText:SetText("")
+    -- ---------- 球池：满溢程度 = 核心等级 ----------
+    -- 旧客户端没有圆形遮罩，所以把球拆成 64 条横条：
+    -- 每条按圆的弦长算宽度，拼起来就是一个圆。
+    -- 液面以上是深色玻璃，液面以下是职业色液体。
+    local WHITE_TEX = "Interface\\Buttons\\WHITE8x8"
+    local ORB_R = 68                      -- 球的半径
+    local ORB_BARS = 64                   -- 横条数量，越多越圆滑
+    local ORB_BAR_H = (ORB_R * 2) / ORB_BARS
+    local ORB_DIAMETER = ORB_R * 2
 
-    local coreResetBtn = CreateFrame("Button", nil, coreCard, "UIPanelButtonTemplate")
-    coreResetBtn:SetSize(28, 24)
-    coreResetBtn:SetPoint("TOPRIGHT", coreCard, "TOPRIGHT", -8, -8)
+    local orbFrame = CreateFrame("Frame", nil, coreFrame)
+    orbFrame:SetSize(ORB_DIAMETER + 30, ORB_DIAMETER + 16)
+    orbFrame:SetPoint("TOP", coreFrame, "TOP", 0, -172)
+
+    -- 球底阴影：两条半透明黑条，让球看起来是“放在”书页上的
+    local orbShadowWide = orbFrame:CreateTexture(nil, "BACKGROUND")
+    orbShadowWide:SetTexture(WHITE_TEX)
+    orbShadowWide:SetSize(104, 5)
+    orbShadowWide:SetPoint("TOP", orbFrame, "TOP", 0, ORB_DIAMETER + 4)
+    orbShadowWide:SetVertexColor(0, 0, 0, 0.10)
+
+    local orbShadowDeep = orbFrame:CreateTexture(nil, "BACKGROUND")
+    orbShadowDeep:SetTexture(WHITE_TEX)
+    orbShadowDeep:SetSize(72, 8)
+    orbShadowDeep:SetPoint("TOP", orbFrame, "TOP", 0, ORB_DIAMETER + 3)
+    orbShadowDeep:SetVertexColor(0, 0, 0, 0.12)
+
+    local orbOutline, orbGlass, orbLiquid, orbShine = {}, {}, {}, {}
+    for i = 1, ORB_BARS do
+        -- cy 是这条横条中心相对球心的高度；越靠近球顶/球底，弦长越短
+        local cy = (i - 0.5) * ORB_BAR_H - ORB_R
+        local half = math.sqrt(math.max(0, ORB_R * ORB_R - cy * cy))
+        local y = -(i - 1) * ORB_BAR_H
+
+        -- 1) 外圈描边：比玻璃略宽，勾出球的轮廓
+        local outline = orbFrame:CreateTexture(nil, "BACKGROUND")
+        outline:SetTexture(WHITE_TEX)
+        outline:SetSize(half * 2 + 3, ORB_BAR_H + 0.6)
+        outline:SetPoint("TOP", orbFrame, "TOP", 0, y)
+        outline:SetVertexColor(0.34, 0.24, 0.14, 0.55)
+        orbOutline[i] = outline
+
+        -- 2) 玻璃底色：没有液体时看到的深色球体
+        local glass = orbFrame:CreateTexture(nil, "ARTWORK")
+        glass:SetTexture(WHITE_TEX)
+        glass:SetSize(math.max(1, half * 2 - 1), ORB_BAR_H + 0.6)
+        glass:SetPoint("TOP", orbFrame, "TOP", 0, y)
+        glass:SetVertexColor(0.09, 0.07, 0.05, 0.92)
+        orbGlass[i] = glass
+
+        -- 3) 液体：比玻璃再窄一点，留出玻璃壁的厚度
+        local liquid = orbFrame:CreateTexture(nil, "ARTWORK")
+        liquid:SetTexture(WHITE_TEX)
+        liquid:SetSize(math.max(1, half * 2 - 4), ORB_BAR_H + 0.6)
+        liquid:SetPoint("TOP", orbFrame, "TOP", 0, y)
+        liquid:SetVertexColor(0.55, 0.82, 1, 1)
+        liquid:SetAlpha(0)   -- 具体哪些横条显示由液面动画决定
+        orbLiquid[i] = liquid
+
+        -- 4) 左上方的一小块反光，只画球体上 1/3，增加玻璃质感
+        if i <= math.floor(ORB_BARS * 0.33) then
+            local shine = orbFrame:CreateTexture(nil, "OVERLAY")
+            shine:SetTexture(WHITE_TEX)
+            shine:SetSize(math.max(2, half * 0.45), ORB_BAR_H + 0.6)
+            shine:SetPoint("TOP", orbFrame, "TOP", -half * 0.45, y)
+            shine:SetVertexColor(1, 1, 1, 0.09)
+            orbShine[i] = shine
+        end
+    end
+
+    local coreResetBtn = CreateFrame("Button", nil, coreFrame, "UIPanelButtonTemplate")
+    coreResetBtn:SetSize(26, 22)
+    coreResetBtn:SetPoint("TOPLEFT", orbFrame, "TOPRIGHT", -10, -6)
+    coreResetBtn:SetFrameLevel(orbFrame:GetFrameLevel() + 8)
     coreResetBtn:SetText("×")
     coreResetBtn:SetScript("OnClick", function()
         local official = GetCoreSpellName()
@@ -1489,20 +1574,31 @@ if panel and panel.LeftPage and panel.RightPage then
         end
     end)
 
-    -- ---------- 核心描述（左页，等级解锁上方） ----------
+    -- 核心等级：从原卡片里挪到球池下方
+    local coreLevelText = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    coreLevelText:SetPoint("TOP", coreFrame, "TOP", 0, -318)
+    coreLevelText:SetWidth(320)
+    coreLevelText:SetJustifyH("CENTER")
+    coreLevelText:SetFont(coreLevelText:GetFont(), 13, "")
+    coreLevelText:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+    coreLevelText:SetText("")
+
+    -- ---------- 核心描述（球池上方，约两行） ----------
     local descLabel = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    descLabel:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -170)
-    descLabel:SetFont(descLabel:GetFont(), 14, "")
-    descLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    descLabel:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -98)
+    descLabel:SetFont(descLabel:GetFont(), 13, "")
+    descLabel:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
     descLabel:SetText("核心描述")
 
     local coreDescInput = CreateFrame("EditBox", nil, coreFrame, "BackdropTemplate")
-    coreDescInput:SetSize(340, 26)
-    coreDescInput:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -190)
+    coreDescInput:SetSize(340, 40)
+    coreDescInput:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -116)
     coreDescInput:SetFontObject("GameFontNormalSmall")
     coreDescInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    coreDescInput:SetTextInsets(6, 6, 0, 0)
+    coreDescInput:SetTextInsets(6, 6, 4, 4)
     coreDescInput:SetAutoFocus(false)
+    -- 多行：文字超出宽度会自动折到第二行
+    coreDescInput:SetMultiLine(true)
     coreDescInput:SetMaxLetters(80)
     coreDescInput:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -1525,18 +1621,123 @@ if panel and panel.LeftPage and panel.RightPage then
 
     -- ---------- 左页：等级解锁功能（只读） ----------
     local unlockTitle = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    unlockTitle:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -232)
-    unlockTitle:SetFont(unlockTitle:GetFont(), 14, "")
-    unlockTitle:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    unlockTitle:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -344)
+    unlockTitle:SetFont(unlockTitle:GetFont(), 13, "")
+    unlockTitle:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
     unlockTitle:SetText("等级解锁")
 
     local unlockText = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    unlockText:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -256)
+    unlockText:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -366)
     unlockText:SetWidth(340)
     unlockText:SetJustifyH("LEFT")
-    unlockText:SetSpacing(8)
-    unlockText:SetFont(unlockText:GetFont(), 14, "")
+    unlockText:SetSpacing(5)
+    unlockText:SetFont(unlockText:GetFont(), 13, "")
     unlockText:SetText("")
+
+    -- ---------- 球池动态 ----------
+    -- 液体高度用 orbFill（0~1）表示：0 级留一点底液，50 级接近满溢。
+    -- 液面、气泡和图标都在 OnUpdate 里缓缓动，平时几乎不耗性能。
+    local orbFill = 0.05
+    local orbTargetFill = 0.05
+    local orbElapsed = 0
+    local orbAcc = 0
+
+    -- 取液体颜色：优先职业色，客户端没给职业色时退回流派主题色
+    local function GetCoreThemeColor()
+        local classToken = CurrentClass()
+        local classColor = classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+        if classColor then
+            return classColor.r, classColor.g, classColor.b
+        end
+        local factionID = AP_DB.flavor and AP_DB.flavor.currentFaction
+        if AP_Aura and AP_Aura.GetTheme then
+            local theme = AP_Aura.GetTheme(classToken, factionID)
+            if theme and theme.color then
+                return theme.color[1], theme.color[2], theme.color[3]
+            end
+        end
+        return AP_Theme.accent[1], AP_Theme.accent[2], AP_Theme.accent[3]
+    end
+
+    -- 设置等级（0~50）和液体颜色；液面会自己慢慢涨过去
+    local function SetOrbLevel(level, r, g, b)
+        level = math.max(0, math.min(50, tonumber(level) or 0))
+        orbTargetFill = 0.05 + (level / 50) * 0.92
+        if r then
+            for i = 1, ORB_BARS do
+                -- 液体越往下越暗，模拟球体底部的阴影，立体感更强
+                local shade = 0.72 + (1 - i / ORB_BARS) * 0.30
+                orbLiquid[i]:SetVertexColor(r * shade, g * shade, b * shade, 1)
+                -- 外圈用职业色的暗调，像玻璃壁映出的颜色
+                orbOutline[i]:SetVertexColor(r * 0.30 + 0.10, g * 0.30 + 0.07, b * 0.30 + 0.05, 0.62)
+            end
+        end
+    end
+
+    -- 气泡：几颗小白点，在液体里从球底往上浮
+    local orbBubbles = {}
+    for i = 1, 6 do
+        local tex = orbFrame:CreateTexture(nil, "OVERLAY")
+        tex:SetTexture(WHITE_TEX)
+        tex:SetSize(4, 4)
+        tex:SetVertexColor(1, 1, 1, 0.30)
+        orbBubbles[i] = {
+            tex = tex,
+            pos = math.random(),
+            side = math.random() * 2 - 1,
+            speed = 0.12 + math.random() * 0.10,
+        }
+    end
+
+    orbFrame:SetScript("OnUpdate", function(self, dt)
+        -- 每秒更新约 20 次就够了，既顺滑又不浪费性能
+        orbAcc = orbAcc + dt
+        if orbAcc < 0.05 then return end
+        local step = orbAcc
+        orbAcc = 0
+
+        -- 液面平滑追上目标高度：升级时会看到液体缓缓上涨
+        if math.abs(orbTargetFill - orbFill) > 0.0005 then
+            orbFill = orbFill + (orbTargetFill - orbFill) * math.min(1, step * 3)
+        end
+
+        orbElapsed = orbElapsed + step
+        local fillPx = orbFill * ORB_DIAMETER
+        local liquidTop = ORB_R - fillPx        -- 液面相对球心的 y（向下为正）
+        local sway = math.sin(orbElapsed * 1.8) * 2.2
+
+        for i = 1, ORB_BARS do
+            local cy = (i - 0.5) * ORB_BAR_H - ORB_R
+            local barBottom = cy + ORB_BAR_H / 2
+            -- 每条横条按自己的相位轻微起伏，液面就不是一条死板的直线
+            local wave = math.sin(orbElapsed * 2.6 + i * 0.65) * 1.8
+            local surface = liquidTop + sway + wave
+            local coverage = (barBottom - surface) / ORB_BAR_H
+            coverage = math.max(0, math.min(1, coverage))
+            orbLiquid[i]:SetAlpha(coverage * 0.88)
+        end
+
+        -- 气泡只在液体够多时出现
+        local showBubbles = fillPx > ORB_BAR_H * 2
+        for i = 1, #orbBubbles do
+            local bubble = orbBubbles[i]
+            if not showBubbles then
+                bubble.tex:Hide()
+            else
+                bubble.tex:Show()
+                bubble.pos = bubble.pos + bubble.speed * step
+                if bubble.pos > 1 then
+                    bubble.pos = 0
+                    bubble.side = math.random() * 2 - 1
+                end
+                local yOff = ORB_R - bubble.pos * fillPx
+                local half = math.sqrt(math.max(0, ORB_R * ORB_R - yOff * yOff))
+                bubble.tex:SetPoint("CENTER", orbFrame, "TOP",
+                    bubble.side * half * 0.62, -(ORB_R + yOff))
+                bubble.tex:SetAlpha(math.min(1, math.sin(bubble.pos * math.pi)) * 0.35)
+            end
+        end
+    end)
 
     -- ---------- 右页：等级操作 + 两个总设置 ----------
     local function EnableText()
@@ -1755,7 +1956,8 @@ if panel and panel.LeftPage and panel.RightPage then
             if term then
                 local info = spellInfo[term.official]
                 btn.term = term
-                btn.spellID = info and info.spellID or nil
+                -- 扫描不到 ID 时按技能名再查一次，保证选完就能显示技能原图标
+                btn.spellID = (info and info.spellID) or TrySpellIDByName(term.official)
                 btn:SetText((term.alias or term.official) .. "（" .. term.official .. "）")
                 btn:Show()
             else
@@ -1802,7 +2004,9 @@ if panel and panel.LeftPage and panel.RightPage then
         end
         coreName:SetText("【" .. displayName .. "】")
         coreLevelText:SetText("核心 Lv." .. level .. " / 50    熟练度 " .. points .. "/" .. maxProf)
-        coreIcon:SetTexture(GetCoreSpellIcon(official))
+        -- 球池：等级决定液面高度，职业/流派色决定液体颜色
+        local orbColorR, orbColorG, orbColorB = GetCoreThemeColor()
+        SetOrbLevel(level, orbColorR, orbColorG, orbColorB)
         coreDescInput:SetText(AP_DB.spotlight.coreDesc or "")
 
         local function LevelState(n)
@@ -1868,6 +2072,8 @@ if panel and panel.LeftPage and panel.RightPage then
             AP_DB.spotlight.coreSpell = ""
             AP_DB.spotlight.customSpell = ""
             AP_DB.spotlight.coreAlias = ""
+            -- 旧技能的图标 ID 也一起清掉，免得重选后图标错位
+            AP_DB.spotlight.coreSpellID = nil
             ClearAliasCache()
             RefreshCoreUI()
         end,
