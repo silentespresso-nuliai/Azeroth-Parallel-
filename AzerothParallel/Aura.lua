@@ -240,6 +240,10 @@ local function CurrentClass()
 end
 
 local function Trigger(classToken, factionID, preview, previewDuration)
+    -- 50 级头顶特效独立叠加，不覆盖 40 级环绕
+    if AP_HeadAura and AP_HeadAura.Trigger then
+        AP_HeadAura.Trigger(classToken, factionID, preview, previewDuration)
+    end
     EnsureDB()
     if not preview then
         if not AP_DB.spotlight.auraEnabled then return end
@@ -284,6 +288,9 @@ end)
 
 AP_Aura = {
     Trigger = Trigger,
+    GetTheme = function(classToken, factionID)
+        return (THEMES[classToken] and THEMES[classToken][factionID]) or DEFAULT_THEME
+    end,
     IsUnlocked = IsUnlocked,
     IsEnabled = function()
         EnsureDB()
@@ -307,7 +314,7 @@ AP_Aura = {
         if AP_DB.spotlight.auraEnabled and not IsUnlocked() then
             print("|cffffd700[AP]|r 施放特效需要核心 Lv.40。")
         else
-            print("|cffffd700[AP]|r 施放特效：" .. (AP_DB.spotlight.auraEnabled and "开启" or "关闭"))
+            print("|cffffd700[AP]|r 施放特效：" .. (AP_DB.spotlight.auraEnabled and "已开启" or "已关闭"))
         end
         if AP_Spotlight and AP_Spotlight.RefreshCoreUI then AP_Spotlight.RefreshCoreUI() end
     end,

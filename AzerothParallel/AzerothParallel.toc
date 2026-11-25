@@ -23,3 +23,4 @@ Peers.lua
 Nameplate.lua
 Spotlight.lua
 Aura.lua
+HeadAura.lua

@@ -268,7 +268,7 @@ aboutIntro:SetWidth(330)
 aboutIntro:SetJustifyH("LEFT")
 aboutIntro:SetSpacing(5)
 aboutIntro:SetFont(aboutIntro:GetFont(), 14, "")
-aboutIntro:SetText("一套面向角色扮演的界面扩展：把职业、天赋与技能的官方称呼，换成符合角色种族与流派背景的说法；并提供聊天弹幕、称谓典籍、表情动作、同好名录与高光特写。\n\n所有改动只发生在本地界面，不修改服务器数据。RP 名称与流派简称只通过插件消息，在同队/同团/同会且双方都安装插件的人之间共享；可用 /AP net 关闭。")
+aboutIntro:SetText("一套面向角色扮演的界面扩展：把职业、天赋与技能的官方称呼，换成符合角色种族与流派背景的说法；并提供聊天弹幕、称谓典籍、表情动作、同好名录与高光特写。\n\n所有改动只发生在本地界面，不修改服务器数据。RP 名称与流派简称只通过插件消息，在同队/同团/同会且双方都安装插件的人之间共享；可在设定页的「奇遇社交」分页关闭。")
 AP_Theme.Paint(aboutIntro, "ink")
 
 -- 分割线

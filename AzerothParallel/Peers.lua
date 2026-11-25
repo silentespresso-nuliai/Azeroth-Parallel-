@@ -80,7 +80,7 @@ hint:SetWidth(340)
 hint:SetJustifyH("LEFT")
 hint:SetFont(hint:GetFont(), 11, "")
 hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-hint:SetText("|cff6b5a45可输入 /AP net on 或 /AP net off 快速切换。|r")
+hint:SetText("|cff6b5a45可在上面的开关里快速切换同好广播。|r")
 
 local function GetDisplay(peer)
     local name = peer.name or "?"
