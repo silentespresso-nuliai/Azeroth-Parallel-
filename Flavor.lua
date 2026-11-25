@@ -27,24 +27,19 @@ if not AP_DB.flavor.customName or AP_DB.flavor.customName == "" then
     AP_DB.flavor.customName = UnitName("player")
 end
 
+-- 换角色时默认回到自己的职业，避免上次预览别的职业导致“第一页不是自己”；
+-- 同一个角色重载时保留上次预览的职业。
+if AP_DB.flavor.lastClass ~= realClassToken then
+    AP_DB.flavor.lastClass = realClassToken
+    AP_DB.flavor.previewClass = realClassToken
+    AP_DB.flavor.previewFaction = AP_DB.flavor.currentFaction
+end
+
 -- 数据层已经抽到 Data.lua（表名 AP_FlavorData）。
 -- 这里保留同名局部引用，下面所有逻辑和 UI 代码不需要改。
 local FlavorData = AP_FlavorData
 
--- 玩家种族：无限服的德鲁伊只有暗夜精灵、巨魔、牛头人、天裔。
--- 天裔是自定义种族，token 不确定；德鲁伊里凡不属于前三者的，统一归为 "Tianyi"。
--- 其他职业的数据没有写 races，所以不受这段影响。
-local raceName, raceToken = UnitRace("player")
-local function GetRaceKey(classToken)
-    if classToken == "DRUID" then
-        if raceToken == "NightElf" or raceName == "暗夜精灵" then return "NightElf" end
-        if raceToken == "Troll" or raceName == "巨魔" then return "Troll" end
-        if raceToken == "Tauren" or raceName == "牛头人" then return "Tauren" end
-        return "Tianyi"
-    end
-    return raceToken
-end
-local playerRaceKey = GetRaceKey(realClassToken)
+-- 所有职业流派对所有角色开放；跨阵营选择会走“异类”确认，并在成长上减半。
 
 -- 书页是浅色羊皮纸，正文要用深色“墨水”才能看清。
 -- 颜色统一从 Core.lua 的 AP_Theme 取；万一 Core 还没定义，就用下面这份兜底。
@@ -55,20 +50,13 @@ local THEME = AP_Theme or {
 
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
--- 玩家种族是否能选这个流派；没写 races 的流派对所有种族开放
-local function IsRaceUsable(f)
-    if not f or not f.races then return true end
-    for _, key in ipairs(f.races) do
-        if key == playerRaceKey then return true end
-    end
-    return false
-end
-
--- 玩家阵营 + 种族是否都能选这个流派
-local function IsFactionUsable(f)
+-- 是否属于“跨阵营流派”：联盟选部落流派，或部落选联盟流派。
+-- 中立流派不触发异类惩罚。
+local function IsCrossFaction(f)
     if not f then return false end
-    local factionOK = f.reqFaction == "Neutral" or f.reqFaction == playerFaction
-    return factionOK and IsRaceUsable(f)
+    if f.reqFaction == "Alliance" and playerFaction == "Horde" then return true end
+    if f.reqFaction == "Horde" and playerFaction == "Alliance" then return true end
+    return false
 end
 
 local function FindFaction(classData, factionID)
@@ -88,19 +76,13 @@ do
     local ownData = FlavorData[AP_DB.flavor.currentClass]
     if ownData then
         local cur = FindFaction(ownData, AP_DB.flavor.currentFaction)
-        -- 流派不存在、或阵营/种族不符（例如换了角色）时，重新选一个可用的
-        if not cur or not IsFactionUsable(cur) then
-            local pick = ownData.factions[1]
-            for _, f in ipairs(ownData.factions) do
-                if IsFactionUsable(f) then
-                    pick = f; break
-                end
-            end
-            AP_DB.flavor.currentFaction = pick.id
+        -- 只有流派 id 失效（例如旧存档）时才回退；不再限制阵营/种族
+        if not cur then
+            AP_DB.flavor.currentFaction = ownData.factions[1].id
         end
     end
 
-    -- 预览允许看所有流派（图鉴）；能不能转投由 IsFactionUsable 单独判断
+    -- 预览允许看所有流派；转投也不再受阵营/种族限制
     local previewClassData = FlavorData[AP_DB.flavor.previewClass]
     if previewClassData and previewClassData.factions then
         if not FindFaction(previewClassData, AP_DB.flavor.previewFaction) then
@@ -118,12 +100,7 @@ function FlavorManager.GetCurrentFactionData()
     local classData = FlavorData[AP_DB.flavor.currentClass]
     if not classData or not classData.factions then return nil, nil end
 
-    local found = FindFaction(classData, AP_DB.flavor.currentFaction)
-    if found and IsFactionUsable(found) then return found, classData end
-    for _, f in ipairs(classData.factions) do
-        if IsFactionUsable(f) then return f, classData end
-    end
-    return classData.factions[1], classData
+    return FindFaction(classData, AP_DB.flavor.currentFaction) or classData.factions[1], classData
 end
 
 function FlavorManager.GetPreviewFactionData()
@@ -156,9 +133,9 @@ end
 
 function FlavorManager.ConvertFaction(newFactionID)
     if newFactionID == AP_DB.flavor.currentFaction then return end
-    -- 只允许转投本职业下、且玩家阵营可用的流派
+    -- 本职业下所有流派都可转投；跨阵营的减速在声望/熟练度成长时结算
     local newData = FindFaction(FlavorData[AP_DB.flavor.currentClass], newFactionID)
-    if not newData or not IsFactionUsable(newData) then return end
+    if not newData then return end
 
     AP_DB.flavor.currentFaction = newFactionID
     AP_DB.flavor.rep[newFactionID] = 0
@@ -171,12 +148,19 @@ end
 function FlavorManager.AddReputation(amount)
     local selectedData = FlavorManager.GetCurrentFactionData()
     if not selectedData then return end
+
+    -- 异类惩罚：跨阵营流派的声望成长减半（只作用于正向收益）
+    local gain = amount
+    if amount > 0 and IsCrossFaction(selectedData) then
+        gain = math.max(1, math.floor(amount * 0.5))
+    end
+
     local oldTier = FlavorManager.GetTierInfo(selectedData)
-    AP_DB.flavor.rep[selectedData.id] = (AP_DB.flavor.rep[selectedData.id] or 0) + amount
+    AP_DB.flavor.rep[selectedData.id] = (AP_DB.flavor.rep[selectedData.id] or 0) + gain
     local newTier = FlavorManager.GetTierInfo(selectedData)
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cff0070dd你获得了 " .. amount .. " 点 [" .. selectedData.name .. "] 声望。|r")
-    local repMsg = "你获得了 " .. amount .. " 点 [" .. selectedData.name .. "] 声望"
+    DEFAULT_CHAT_FRAME:AddMessage("|cff0070dd你获得了 " .. gain .. " 点 [" .. selectedData.name .. "] 声望。|r")
+    local repMsg = "你获得了 " .. gain .. " 点 [" .. selectedData.name .. "] 声望"
     if AP_EmoteUI and AP_EmoteUI.Notify then
         AP_EmoteUI.Notify(repMsg, 0, 0.5, 1)
     else
@@ -198,6 +182,20 @@ AP_FlavorManager = FlavorManager
 StaticPopupDialogs["AP_FLAVOR_CONVERT_CONFIRM"] = {
     text = "确定要转投 |cffffd700%s|r 吗？\n\n你在当前流派的声望将会清零。",
     button1 = ACCEPT,
+    button2 = CANCEL,
+    OnAccept = function(self, data)
+        if data then FlavorManager.ConvertFaction(data) end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- 跨阵营转投：额外弹“异类”确认，之后声望/熟练度成长减半
+StaticPopupDialogs["AP_FLAVOR_HERETIC_CONFIRM"] = {
+    text = "|cffff2020异类！|r\n\n你做出了一个非同常人的选择。\n你在该流派的熟练度以及声望成长将会更加困难，确定吗？\n\n|cff888888（转投后，当前流派声望仍会清零）|r\n\n|cffffd700%s|r",
+    button1 = "我确定",
     button2 = CANCEL,
     OnAccept = function(self, data)
         if data then FlavorManager.ConvertFaction(data) end
@@ -506,8 +504,12 @@ convertBtn:SetText("转化流派 (声望清零)")
 convertBtn:SetScript("OnClick", function()
     local data = FindFaction(FlavorData[AP_DB.flavor.currentClass], AP_DB.flavor.previewFaction)
     if not data then return end
-    -- 弹出确认框，确认后才真正转化
-    StaticPopup_Show("AP_FLAVOR_CONVERT_CONFIRM", data.name, nil, data.id)
+    -- 跨阵营走“异类”确认；同阵营/中立走普通确认
+    if IsCrossFaction(data) then
+        StaticPopup_Show("AP_FLAVOR_HERETIC_CONFIRM", data.name, nil, data.id)
+    else
+        StaticPopup_Show("AP_FLAVOR_CONVERT_CONFIRM", data.name, nil, data.id)
+    end
 end)
 
 -- ★ 称谓典籍按钮：点一下，右页从“流派介绍”切换成“技能/天赋称呼对照表”
@@ -581,6 +583,17 @@ spellText:SetSpacing(8)
 spellText:SetFont(spellText:GetFont(), 16, "")
 spellText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 spellScrollFrame:Hide()
+
+-- 称谓典籍 → 核心培养：点一下直接切到第 4 个「核心」页
+local coreJumpBtn = CreateFrame("Button", nil, RightPage, "UIPanelButtonTemplate")
+coreJumpBtn:SetSize(260, 26)
+coreJumpBtn:SetPoint("BOTTOM", RightPage, "BOTTOM", 0, 26)
+coreJumpBtn:SetText("前往核心培养")
+coreJumpBtn:Hide()
+coreJumpBtn:SetScript("OnClick", function()
+    if AP_MainFrame then AP_MainFrame:Show() end
+    if AP_SelectTab then AP_SelectTab(4) end
+end)
 
 -- 未实装职业提示：玩家自己的职业还没有流派数据时，在右页底部说明一句，
 -- 避免让人以为插件坏了或者列表空了。默认隐藏，由 UI.Refresh 控制。
@@ -772,6 +785,13 @@ profFrame:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
     else
         chance = 0.10
     end
+
+    -- 异类惩罚：跨阵营流派时，熟练度成长概率减半（核心等级由熟练度换算，也会同步变慢）
+    local factionData = FlavorManager.GetCurrentFactionData()
+    if IsCrossFaction(factionData) then
+        chance = chance * 0.5
+    end
+
     if math.random() > chance then return end
 
     current = current + 1
@@ -781,7 +801,8 @@ profFrame:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
     local profMsg = "熟练度提升：" .. (term.alias or term.official) ..
         "  " .. current .. "/" .. maxProf
     if AP_EmoteUI and AP_EmoteUI.Notify then
-        AP_EmoteUI.Notify(profMsg, 0, 0.5, 1)
+        -- 熟练度提示比声望提示更醒目：颜色更深、字号大一点、停留 4.5 秒
+        AP_EmoteUI.Notify(profMsg, 0, 0.38, 0.78, 17, 4.5)
     else
         UIErrorsFrame:AddMessage(profMsg, 0, 0.5, 1, 1)
     end
@@ -826,16 +847,30 @@ function UI.RefreshSpellBook(previewData)
                 table.insert(lines, (lastCategory and "\n" or "") .. "|cff8c261a【" .. term.category .. "】|r")
                 lastCategory = term.category
             end
+            -- 核心技能 15 级后改过的名字，同步显示在称谓典籍里
+            local displayAlias = term.alias
+            local coreLevelForTerm
+            local spotlightDB = AP_DB.spotlight
+            if showProf and spotlightDB and spotlightDB.coreSpell == term.official then
+                local prof = AP_DB.flavor.skillProf or {}
+                coreLevelForTerm = math.min(30, math.floor(((prof[term.official] or 0) / 10)) + 1)
+                if type(spotlightDB.coreAlias) == "string" and spotlightDB.coreAlias ~= "" then
+                    displayAlias = spotlightDB.coreAlias
+                end
+            end
+
             -- 一行：绿色 = 本流派称呼，灰色 = 官方原名，方便对照
-            table.insert(lines, "|cff3f6b2e" .. (term.alias or "?") .. "|r |cff6b5a45（官方：" .. (term.official or "?") .. "）|r")
+            table.insert(lines, "|cff3f6b2e" .. (displayAlias or "?") .. "|r |cff6b5a45（官方：" .. (term.official or "?") .. "）|r")
             -- 有备注的话，缩进一行灰字补一句说明
             if term.note and term.note ~= "" then
                 table.insert(lines, "|cff6b5a45　　" .. term.note .. "|r")
             end
             -- 熟练度（天赋是被动的，不显示；预览别的职业时也不显示）
             if showProf and term.category ~= "天赋" then
+                local coreTag = coreLevelForTerm
+                    and ("  |cff8c261a核心 Lv." .. coreLevelForTerm .. "|r") or ""
                 table.insert(lines, "|cff6b5a45　　熟练度：|r" ..
-                    FormatProfBar(GetSkillProf(term.official), GetMaxSkillProf()))
+                    FormatProfBar(GetSkillProf(term.official), GetMaxSkillProf()) .. coreTag)
             end
         end
         spellText:SetText(table.concat(lines, "\n"))
@@ -949,10 +984,9 @@ function UI.Refresh()
     end
 
     local canConvert = false
-    if AP_DB.flavor.previewClass == AP_DB.flavor.currentClass and previewData then
-        if previewData.id ~= AP_DB.flavor.currentFaction and IsFactionUsable(previewData) then
-            canConvert = true
-        end
+    if AP_DB.flavor.previewClass == AP_DB.flavor.currentClass and previewData
+        and previewData.id ~= AP_DB.flavor.currentFaction then
+        canConvert = true
     end
 
     if canConvert then
@@ -987,11 +1021,22 @@ function UI.Refresh()
         end
 
         UI.RefreshSpellBook(previewData)
+
+        -- 只有预览自己职业、且已经选了核心技能时，才显示跳转入口
+        local spotlightDB = AP_DB.spotlight
+        if spotlightDB and spotlightDB.coreSpell and spotlightDB.coreSpell ~= ""
+            and AP_DB.flavor.previewClass == AP_DB.flavor.currentClass then
+            coreJumpBtn:SetText("核心培养：" .. spotlightDB.coreSpell .. " →")
+            coreJumpBtn:Show()
+        else
+            coreJumpBtn:Hide()
+        end
     else
         iconFrame:Show()
         scrollFrame:Show()
         spellScrollFrame:Hide()
         tooltipToggle:Hide()
+        coreJumpBtn:Hide()
     end
 
     badgeIcon:SetTexture(previewData.icon or FALLBACK_ICON)
@@ -1008,9 +1053,6 @@ function UI.Refresh()
     -- 预览别的流派/职业时，声望条显示的是那个流派自己的存档数据，并用灰色区分。
     local isOwn = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass
         and previewData.id == AP_DB.flavor.currentFaction)
-    -- 当前角色种族/阵营不能选的流派：仍可看图鉴，但不能转投
-    local notUsable = not IsFactionUsable(previewData)
-
     if isOwn then
         repBar:SetStatusBarColor(THEME.accent[1], THEME.accent[2], THEME.accent[3])
     else
@@ -1022,9 +1064,7 @@ function UI.Refresh()
         if isOwn then
             levelDisplay:SetText("|cff5c3f23当前身份：|r" .. tier.name)
         else
-            -- 明确区分“未激活”和“本角色不能选”，避免误解
-            local suffix = notUsable and "（仅图鉴，不可转投）" or "（未激活）"
-            levelDisplay:SetText("|cff7a6a55预览：" .. previewData.name .. " · " .. tier.name .. suffix .. "|r")
+            levelDisplay:SetText("|cff7a6a55预览：" .. previewData.name .. " · " .. tier.name .. "|r")
         end
         if nextTier then
             local prevExp = tier.exp or 0

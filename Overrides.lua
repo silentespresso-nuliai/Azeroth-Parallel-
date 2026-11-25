@@ -34,13 +34,27 @@ local function BuildAliasMap()
     local key = tostring(classToken) .. ":" .. tostring(factionID)
     if cachedKey == key and cachedMap then return cachedMap end
 
+    -- 核心技能 15 级后改过名字的，tooltip 也同步显示新名字
+    local spotlightDB = AP_DB.spotlight
+    local coreSpell = spotlightDB and spotlightDB.coreSpell
+    local coreAlias = spotlightDB and spotlightDB.coreAlias
+    local coreLevel = 0
+    if coreSpell then
+        local prof = AP_DB.flavor.skillProf or {}
+        coreLevel = math.min(30, math.floor(((prof[coreSpell] or 0) / 10)) + 1)
+    end
+
     local map = {}
     if AP_FlavorManager and AP_FlavorManager.GetTermList then
         local list = AP_FlavorManager.GetTermList(classToken, factionID)
         if list then
             for _, term in ipairs(list) do
                 if term.official and term.alias then
-                    map[term.official] = term.alias
+                    local alias = term.alias
+                    if coreAlias and coreAlias ~= "" and term.official == coreSpell then
+                        alias = coreAlias
+                    end
+                    map[term.official] = alias
                 end
             end
         end
