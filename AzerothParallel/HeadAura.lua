@@ -22,7 +22,8 @@ local DEFAULT_HEAD = { name = "光环", styles = { "ring", "pulse" } }
 
 local HEAD_STYLES = {
     DRUID = {
-        [1] = { name = "月穹星环", styles = { "beam", "fall" }, color = { 0.82, 0.9, 1 }, moon = true },
+        -- 平衡德：月牙 + 上升星点 + 从底部/两侧洒下的月光
+        [1] = { name = "月穹星环", styles = { "beam", "rise" }, color = { 0.82, 0.9, 1 }, moon = true },
         [2] = { name = "兽爪血痕", styles = { "ring", "rise" }, color = { 0.9, 0.3, 0.2 } },
         [3] = { name = "厚土壁垒", styles = { "ring", "pulse" }, color = { 0.7, 0.55, 0.3 } },
         [4] = { name = "生命花环", styles = { "ring", "rise" }, color = { 0.4, 0.9, 0.5 } },
@@ -134,41 +135,57 @@ for i = 1, 3 do
     }
 end
 
--- 月光/光柱：细长的纯色贴图，从上往下慢慢落
+-- 月光：从月牙底部和两侧向下洒，不穿过顶端尖部
+local BEAM_X = { -60, -46, -28, 28, 46, 60 }
 for i = 1, 6 do
     groups.beam[i] = {
-        tex = NewTexture("Interface\\Buttons\\WHITE8x8", 2 + math.random(0, 4), 90 + math.random(0, 40)),
-        x = -55 + math.random(0, 110),
+        tex = NewTexture("Interface\\Buttons\\WHITE8x8", 2 + math.random(0, 4), 70 + math.random(0, 30)),
+        x = BEAM_X[i] + (math.random() - 0.5) * 6,
         phase = math.random(),
-        speed = 0.12 + math.random() * 0.15,
+        speed = 0.10 + math.random() * 0.12,
     }
 end
 
--- 平衡德专属：用短光条沿弧线拼出一个大月牙，放在月光柱上方
+-- 平衡德专属：一个外圆盘中间扣掉一个偏心小圆，横条填充出真正的月牙
+-- 这是“大圆减小圆”，不是半圆弧带；只填充两个圆的交点之间，避免多出圆盖。
 local moon = { segments = {}, glowBig = nil, glowSmall = nil }
-local function AddMoonSegment(angleDeg, radius, width, thickness, alpha)
-    local tex = NewTexture("Interface\\Buttons\\WHITE8x8", width, thickness)
-    local rad = math.rad(angleDeg)
-    tex:SetPoint("CENTER", frame, "CENTER", math.cos(rad) * radius, math.sin(rad) * radius + 78)
-    if tex.SetRotation then pcall(tex.SetRotation, tex, rad + math.pi / 2) end
-    tex:SetAlpha(alpha)
-    moon.segments[#moon.segments + 1] = { tex = tex, base = alpha }
+local MOON_R = 42            -- 外圆半径
+local MOON_HOLE_R = 40       -- 被扣掉的小圆半径
+local MOON_HOLE_X = 8        -- 小圆向右偏
+local MOON_HOLE_Y = 0
+local MOON_CENTER_Y = 72
+local moonXInt = (MOON_R * MOON_R - MOON_HOLE_R * MOON_HOLE_R + MOON_HOLE_X * MOON_HOLE_X)
+    / (2 * MOON_HOLE_X)
+local moonYInt = math.sqrt(math.max(0, MOON_R * MOON_R - moonXInt * moonXInt))
+
+local function AddMoonBar(x1, x2, y)
+    local w = x2 - x1
+    if w < 1 then return end
+    local tex = NewTexture("Interface\\Buttons\\WHITE8x8", w, 2.4)
+    tex:SetPoint("CENTER", frame, "CENTER", (x1 + x2) / 2, y + MOON_CENTER_Y)
+    tex:SetAlpha(0.42)
+    moon.segments[#moon.segments + 1] = { tex = tex, base = 0.42 }
 end
 
-for i = 1, 14 do
-    AddMoonSegment(-105 + (i - 1) * (210 / 13), 58, 18, 5, 0.8)
-end
-for i = 1, 12 do
-    AddMoonSegment(-95 + (i - 1) * (190 / 11), 45, 15, 4, 0.5)
-end
-for i = 1, 14 do
-    AddMoonSegment(-100 + (i - 1) * (200 / 13), 52, 20, 6, 0.32)
+for y = -moonYInt, moonYInt, 2 do
+    local outerHalf = math.sqrt(math.max(0, MOON_R * MOON_R - y * y))
+    local dy = y - MOON_HOLE_Y
+    local holeHalf = math.sqrt(math.max(0, MOON_HOLE_R * MOON_HOLE_R - dy * dy))
+    local hLeft = MOON_HOLE_X - holeHalf
+    local hRight = MOON_HOLE_X + holeHalf
+    -- 大圆这一行减去小圆这一行，剩下的就是月牙
+    if hLeft > -outerHalf then
+        AddMoonBar(-outerHalf, math.min(hLeft, outerHalf), y)
+    end
+    if hRight < outerHalf then
+        AddMoonBar(math.max(hRight, -outerHalf), outerHalf, y)
+    end
 end
 
-moon.glowBig = NewTexture("Interface\\Cooldown\\star4", 120, 120)
-moon.glowBig:SetPoint("CENTER", frame, "CENTER", 10, 78)
-moon.glowSmall = NewTexture("Interface\\Cooldown\\star4", 46, 46)
-moon.glowSmall:SetPoint("CENTER", frame, "CENTER", 22, 78)
+moon.glowBig = NewTexture("Interface\\Cooldown\\star4", 110, 110)
+moon.glowBig:SetPoint("CENTER", frame, "CENTER", 4, 72)
+moon.glowSmall = NewTexture("Interface\\Cooldown\\star4", 40, 40)
+moon.glowSmall:SetPoint("CENTER", frame, "CENTER", 14, 72)
 
 local themeColor = { 0.55, 0.82, 1 }
 local activeStyles = { ring = false, rise = false, fall = false, pulse = false, beam = false }
@@ -271,10 +288,11 @@ frame:SetScript("OnUpdate", function(_, elapsed)
     if activeStyles.beam then
         for i, p in ipairs(groups.beam) do
             local prog = (p.phase + elapsedTotal * p.speed) % 1
-            local y = 90 - prog * 80
-            local x = p.x + math.sin(elapsedTotal * 0.8 + i) * 4
+            -- 从月牙下沿（y≈35）往下洒到脚边，不碰月牙顶端
+            local y = 35 - prog * 100
+            local x = p.x + math.sin(elapsedTotal * 0.8 + i) * 3
             p.tex:SetPoint("CENTER", frame, "CENTER", x, y)
-            p.tex:SetAlpha(math.sin(prog * math.pi) * 0.22)
+            p.tex:SetAlpha(math.sin(prog * math.pi) * 0.18)
         end
     end
 
@@ -344,16 +362,7 @@ local function IsHeadUnlocked()
     return AP_Spotlight and AP_Spotlight.GetCoreLevel and AP_Spotlight.GetCoreLevel() >= 50
 end
 
-local function Trigger(classToken, factionID, preview, previewDuration, respectLock)
-    EnsureDB()
-    if not preview then
-        if not AP_DB.spotlight.headAuraEnabled then return end
-        if not IsHeadUnlocked() then return end
-    elseif respectLock and not IsHeadUnlocked() then
-        -- 试放时只展示当前等级已经解锁的特效
-        return
-    end
-
+local function ShowHead(classToken, factionID)
     classToken = classToken or CurrentClass()
     factionID = factionID or (AP_DB.flavor and AP_DB.flavor.currentFaction)
     local spec = GetSpecIndex(classToken)
@@ -364,33 +373,124 @@ local function Trigger(classToken, factionID, preview, previewDuration, respectL
 
     ApplyHeadTheme(style, color)
     triggerToken = triggerToken + 1
-    local token = triggerToken
     frame:Show()
+end
 
-    if preview then
-        if C_Timer and C_Timer.After then
-            C_Timer.After(previewDuration or 6, function()
-                if triggerToken == token then frame:Hide() end
-            end)
+local function Trigger(classToken, factionID, preview, previewDuration, respectLock)
+    EnsureDB()
+    -- 实战不再由施放核心技能触发：战斗里核心技能冷却好了就会自动显示
+    if not preview then return end
+    if respectLock and not IsHeadUnlocked() then
+        -- 试放时只展示当前等级已经解锁的特效
+        return
+    end
+
+    ShowHead(classToken, factionID)
+    if C_Timer and C_Timer.After then
+        local token = triggerToken
+        C_Timer.After(previewDuration or 6, function()
+            if triggerToken == token then frame:Hide() end
+        end)
+    end
+end
+
+-- ==========================================
+-- 实战触发：战斗中核心技能冷却好了就显示，冷却中 / 脱战收起
+-- ==========================================
+local inCombat = false
+local combatCheckAcc = 0
+
+-- 新客户端会把战斗中的冷却/可用性数值标记成 secret，插件不能直接比较；
+-- 这里先检测，secret 值就换一种不读数值的判断方式。
+local function IsSecretValue(value)
+    if type(issecretvalue) ~= "function" then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret
+end
+
+local function IsCoreReady()
+    EnsureDB()
+    local db = AP_DB.spotlight
+    local spellID = type(db.coreSpellID) == "number" and db.coreSpellID or nil
+    local spellName = db.coreSpell
+    if not spellName or spellName == "" then spellName = db.customSpell end
+    local target = spellID or spellName
+    if not target or target == "" then return false end
+
+    -- 1) 旧接口：直接问“这个技能现在能不能用”
+    if type(IsUsableSpell) == "function" then
+        local ok, usable = pcall(IsUsableSpell, target)
+        if ok and usable ~= nil and not IsSecretValue(usable) then
+            return usable and true or false
         end
+    end
+
+    -- 2) 新接口：C_Spell.IsSpellUsable
+    if C_Spell and C_Spell.IsSpellUsable then
+        local ok, usable = pcall(C_Spell.IsSpellUsable, target)
+        if ok and usable ~= nil and not IsSecretValue(usable) then
+            return usable and true or false
+        end
+    end
+
+    -- 3) 老客户端：读冷却时间；如果是 secret 值就跳过比较
+    if type(GetSpellCooldown) == "function" then
+        local ok, start, duration = pcall(GetSpellCooldown, target)
+        if ok and start ~= nil and not IsSecretValue(start) and not IsSecretValue(duration) then
+            return start == 0 or (duration or 0) == 0
+        end
+    end
+
+    -- 全部接口都读不到时（secret 环境），交给外面的「释放间隔」控制频率
+    return true
+end
+
+local combatFrame = CreateFrame("Frame")
+combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        inCombat = true
+        combatCheckAcc = 0
     else
-        local inCombat = (type(UnitAffectingCombat) == "function" and UnitAffectingCombat("player")) and true or false
-        if not inCombat and C_Timer and C_Timer.After then
-            C_Timer.After(6, function()
-                if triggerToken == token
-                    and not (type(UnitAffectingCombat) == "function" and UnitAffectingCombat("player")) then
+        inCombat = false
+        triggerToken = triggerToken + 1
+        frame:Hide()
+    end
+end)
+
+local lastHeadAt = 0          -- 上次触发时间，用来遵守「释放间隔」
+local HEAD_SHOW_SECONDS = 8   -- 每次触发显示多久
+
+combatFrame:SetScript("OnUpdate", function(_, elapsed)
+    if not inCombat then return end
+    combatCheckAcc = combatCheckAcc + elapsed
+    if combatCheckAcc < 0.4 then return end
+    combatCheckAcc = 0
+
+    EnsureDB()
+    local db = AP_DB.spotlight
+    local enabled = db.headAuraEnabled and IsHeadUnlocked() and IsCoreReady()
+    local cooldownSec = (db.cooldownMinutes or 1) * 60
+    local now = GetTime()
+    local canTrigger = cooldownSec <= 0 or lastHeadAt == 0 or (now - lastHeadAt) >= cooldownSec
+
+    if enabled and canTrigger and not frame:IsShown() then
+        lastHeadAt = now
+        ShowHead()
+        local token = triggerToken
+        if C_Timer and C_Timer.After then
+            C_Timer.After(HEAD_SHOW_SECONDS, function()
+                if triggerToken == token and inCombat then
+                    triggerToken = triggerToken + 1
                     frame:Hide()
                 end
             end)
         end
+    elseif (not enabled) and frame:IsShown() then
+        triggerToken = triggerToken + 1
+        frame:Hide()
     end
-end
-
-local combatFrame = CreateFrame("Frame")
-combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatFrame:SetScript("OnEvent", function()
-    triggerToken = triggerToken + 1
-    frame:Hide()
 end)
 
 AP_HeadAura = {

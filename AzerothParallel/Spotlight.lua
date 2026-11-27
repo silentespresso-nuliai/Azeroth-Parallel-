@@ -25,7 +25,7 @@ local function EnsureDB()
     end
     -- 广播开关不再在界面里提供；只在没有存档值时默认开启，不覆盖旧存档
     if db.broadcast == nil then db.broadcast = true end
-    -- 释放间距（分钟）：1~10，默认 1 分钟
+    -- 释放间隔（分钟）：1~10，默认 1 分钟
     if type(db.cooldownMinutes) ~= "number" or db.cooldownMinutes < 0 or db.cooldownMinutes > 10 then
         db.cooldownMinutes = 1
     end
@@ -1057,7 +1057,7 @@ end
 local lastCastAt = {}
 local lastShowAt = 0
 
--- 本地触发间隔由玩家在右页「释放间距」调整（1~10 分钟）
+-- 本地触发间隔由玩家在右页「释放间隔」调整（1~10 分钟）
 local lastTriggerAt = 0
 
 -- 调试日志：默认关闭。游戏里输入 /AP spotlog 可开关。
@@ -1962,7 +1962,7 @@ if panel and panel.LeftPage and panel.RightPage then
             if AP_HeadAura and AP_HeadAura.Toggle then AP_HeadAura.Toggle() end
         end)
 
-    -- ---------- 触发范围 / 释放间距 ----------
+    -- ---------- 触发范围 / 释放间隔 ----------
     local scopeValue, scopeRowBtn = MakeToggleRow(right, "触发范围", -30, ScopeText, function()
         AP_DB.spotlight.groupOnly = not AP_DB.spotlight.groupOnly
     end)
@@ -1978,7 +1978,7 @@ if panel and panel.LeftPage and panel.RightPage then
         AP_DB.spotlight.cooldownMinutes = value
     end
 
-    local cooldownValue, cooldownRowBtn = MakeToggleRow(right, "释放间距", -62,
+    local cooldownValue, cooldownRowBtn = MakeToggleRow(right, "释放间隔", -62,
         CooldownText, CycleCooldown)
 
     -- ---------- 视图刷新 ----------

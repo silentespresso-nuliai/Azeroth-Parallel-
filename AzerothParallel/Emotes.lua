@@ -62,6 +62,30 @@ local PHRASES = {
     "有事就来营地找我。",
 }
 
+-- 玩家种族图标：用各职业都能认出来的种族天赋图标，避免 RaceIcon_* 缺失时变黑块
+local RACE_ICONS = {
+    Human = "Interface\\Icons\\Ability_Racial_Perception",
+    Orc = "Interface\\Icons\\Ability_Racial_BloodFury",
+    Dwarf = "Interface\\Icons\\Ability_Racial_Stoneform",
+    NightElf = "Interface\\Icons\\Ability_Racial_Shadowmeld",
+    Undead = "Interface\\Icons\\Ability_Racial_WilloftheForsaken",
+    Scourge = "Interface\\Icons\\Ability_Racial_WilloftheForsaken",
+    Tauren = "Interface\\Icons\\Ability_Racial_Warstomp",
+    Gnome = "Interface\\Icons\\Ability_Racial_EscapeArtist",
+    Troll = "Interface\\Icons\\Ability_Racial_Berserking",
+    BloodElf = "Interface\\Icons\\Ability_Racial_ArcaneTorrent",
+    Draenei = "Interface\\Icons\\Ability_Racial_GiftOfTheNaaru",
+}
+local function GetPlayerRaceIcon()
+    if type(UnitRace) ~= "function" then return FALLBACK_ICON end
+    local okRace, _, raceToken = pcall(UnitRace, "player")
+    if not okRace or type(raceToken) ~= "string" or raceToken == "" then
+        return FALLBACK_ICON
+    end
+    local key = raceToken:gsub("%s+", "")
+    return RACE_ICONS[key] or FALLBACK_ICON
+end
+
 -- ---------- 基础动作列表（固定 5 个） ----------
 -- emote = "TOKEN"        -> 调用游戏内置表情（等同于输入 /joke /dance 等）
 -- lines = { ... }        -> 说话用的句子；pick = true 时弹出列表让玩家自己挑
@@ -85,13 +109,13 @@ local EMOTES = {
         name = "打招呼",
         desc = "向周围的人打个招呼。",
         emote = "HELLO",
-        icon = "Interface\\Icons\\Ability_Hunter_BeastCall"
+        icon = GetPlayerRaceIcon()
     },
     {
         name = "再见",
         desc = "挥手告别。",
         emote = "BYE",
-        icon = "Interface\\Icons\\INV_Misc_Balloon_01"
+        icon = "Interface\\Icons\\Spell_Nature_AstralRecal"
     },
     {
         name = "魔法耗尽",
@@ -103,8 +127,8 @@ local EMOTES = {
 
 -- 5 个自定义槽的默认图标：前 2 个是 /e 表情，后 3 个是说话
 local CUSTOM_ICONS = {
-    "Interface\\Icons\\INV_Misc_Note_02",
-    "Interface\\Icons\\INV_Misc_Note_03",
+    "Interface\\Icons\\INV_Misc_Drum_01",             -- 自定义表情 1（跳舞感）
+    "Interface\\Icons\\Ability_Warrior_RallyingCry",  -- 自定义表情 2（欢呼感）
     "Interface\\Icons\\INV_Misc_Note_04",
     "Interface\\Icons\\INV_Misc_Note_05",
     "Interface\\Icons\\INV_Misc_Note_06",
@@ -1349,12 +1373,12 @@ statsBar:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 -- ==========================================
--- 姓名下方的小图标：属性 / 表情 / 技能熟练度 / 主界面
+-- 姓名下方的小图标：核心 / 技能熟练度 / 属性 / 主界面
 -- ==========================================
 local MINI_SIZE = 22
 local MINI_GAP = 6
 local miniRow = CreateFrame("Frame", nil, nameplate)
-miniRow:SetSize(MINI_SIZE * 5 + MINI_GAP * 4, MINI_SIZE)
+miniRow:SetSize(MINI_SIZE * 4 + MINI_GAP * 3, MINI_SIZE)
 miniRow:SetPoint("TOP", plateFaction, "BOTTOM", 0, -4)
 
 local function MakeMiniButton(index, icon, tooltipText, onClick)
@@ -1394,26 +1418,8 @@ coreIcon = MakeMiniButton(1, "Interface\\Icons\\INV_Misc_QuestionMark",
         UI.OpenCoreSettings()
     end)
 
--- 2) 属性：显示 / 隐藏下面的属性条
-MakeMiniButton(2, "Interface\\Icons\\Spell_Nature_Strength",
-    "属性：显示 / 隐藏属性条", function(self)
-        local show = not statsBar:IsShown()
-        statsBar:SetShown(show)
-        self:SetAlpha(show and 1 or 0.5)
-    end)
-
--- 3) 表情：显示 / 隐藏表情图标面板（和右上角 × 对应）
-local emoteIcon = MakeMiniButton(3, "Interface\\Icons\\INV_Misc_Balloon_01",
-    "表情：显示 / 隐藏表情面板", function()
-        if frame:IsShown() then
-            frame:Hide()
-        else
-            frame:Show()
-        end
-    end)
-
--- 4) 技能熟练度：直接打开「职业流派 → 称谓典籍」页（卡片保持显示，不隐藏）
-MakeMiniButton(4, "Interface\\Icons\\INV_Sword_04",
+-- 2) 技能熟练度：直接打开「职业流派 → 称谓典籍」页（卡片保持显示，不隐藏）
+MakeMiniButton(2, "Interface\\Icons\\INV_Sword_04",
     "技能熟练度：打开称谓典籍", function()
         if AP_FlavorUI and AP_FlavorUI.OpenSkillBook then
             AP_FlavorUI.OpenSkillBook()
@@ -1422,8 +1428,16 @@ MakeMiniButton(4, "Interface\\Icons\\INV_Sword_04",
         end
     end)
 
--- 5) 主界面：打开 / 关闭 /AP 面板；打开时固定切到「设定」页
-MakeMiniButton(5, "Interface\\Icons\\INV_Misc_Book_09",
+-- 3) 属性：显示 / 隐藏下面的属性条
+MakeMiniButton(3, "Interface\\Icons\\Spell_Nature_Strength",
+    "属性：显示 / 隐藏属性条", function(self)
+        local show = not statsBar:IsShown()
+        statsBar:SetShown(show)
+        self:SetAlpha(show and 1 or 0.5)
+    end)
+
+-- 4) 主界面：打开 / 关闭 /AP 面板；打开时固定切到「设定」页
+MakeMiniButton(4, "Interface\\Icons\\INV_Misc_Book_09",
     "主界面：打开 / 关闭 /AP 面板（默认设定页）", function()
         if AP_MainFrame then
             if AP_MainFrame:IsShown() then
@@ -1437,10 +1451,6 @@ MakeMiniButton(5, "Interface\\Icons\\INV_Misc_Book_09",
             end
         end
     end)
-
--- 表情面板被 × 关掉时，把「表情」小图标调暗，提示当前是关闭状态
-frame:HookScript("OnShow", function() emoteIcon:SetAlpha(1) end)
-frame:HookScript("OnHide", function() emoteIcon:SetAlpha(0.5) end)
 
 -- 关闭按钮（右上角小叉）
 local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")

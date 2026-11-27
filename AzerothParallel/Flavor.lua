@@ -559,11 +559,15 @@ descText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
 -- “反映到游戏内提示”的开关：勾选后，鼠标悬停技能时第一行显示本流派的称呼。
 -- 只包装 tooltip 的显示函数，不碰 GetSpellInfo，别人看不到，也不会影响其他插件。
 local tooltipToggle = CreateFrame("CheckButton", "AP_TooltipAliasToggle", RightPage, "ChatConfigCheckButtonTemplate")
-tooltipToggle:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 50, -32)
+-- 标题在 RightPage -10，副标题行是 -46；和右侧「已修习」同一行
+tooltipToggle:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 38, -46)
 local toggleText = _G[tooltipToggle:GetName() .. "Text"]
-toggleText:SetText("应用到游戏内提示/施法条（仅自己可见）")
-toggleText:SetFont(toggleText:GetFont(), 14, "")
-toggleText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
+toggleText:SetText("应用到技能名")
+toggleText:SetFont(toggleText:GetFont(), 11, "")
+toggleText:SetTextColor(THEME.inkSoft[1], THEME.inkSoft[2], THEME.inkSoft[3])
+toggleText:ClearAllPoints()
+toggleText:SetPoint("LEFT", tooltipToggle, "RIGHT", 4, 0)
+toggleText:SetJustifyH("LEFT")
 tooltipToggle:SetChecked(AP_DB.flavor.tooltipAlias and true or false)
 tooltipToggle:SetScript("OnClick", function(self)
     local on = self:GetChecked() and true or false
@@ -588,22 +592,315 @@ end)
 
 -- 称谓典籍的滚动区：和“流派介绍”共用右页，同一时间只显示其中一个。
 -- 顶部要给上面的开关留位置，所以从 -72 开始。
+-- ==========================================
+-- 称谓典籍（新版排版）：固定头部 + 滚动行池 + 详情卡
+-- 只做显示层：词条来自 BuildTermList，熟练度来自 skillProf
+-- ==========================================
+local SB_CONTENT_W = 324
+local SB_ROW_H = 32
+local SB_ROW_GAP = 2
+local SB_CAT_H = 18
+local SB_CAT_GAP = 8
+local SB_ICON = 20
+local SB_BAR_W = 76
+local SB_BAR_H = 8
+local SB_BAR_SEGMENTS = math.floor((SB_BAR_W - 4) / 5)  -- 14 段
+
+-- 颜色：能对上主题的读 AP_Theme，其余按参考图写死
+local SB_COL = {
+    title = { THEME.accent[1], THEME.accent[2], THEME.accent[3] },
+    ink = { THEME.ink[1], THEME.ink[2], THEME.ink[3] },
+    soft = { 118/255, 88/255, 56/255 },
+    muted = { 176/255, 150/255, 112/255 },
+    line = { 170/255, 132/255, 84/255 },
+    green = { 46/255, 104/255, 58/255 },
+    gold = { 178/255, 128/255, 46/255 },
+    rowEven = { 240/255, 208/255, 154/255 },
+    coreRow = { 246/255, 199/255, 188/255 },   -- 核心技能行的淡红底
+    cardBg = { 250/255, 228/255, 186/255 },
+    barBg = { 214/255, 180/255, 126/255 },
+    cream = { 255/255, 244/255, 214/255 },
+    barEdge = { 51/255, 31/255, 16/255 },
+}
+
+-- 头部：标题 + 双分割线 + 副标题
+local spellBookHeader = CreateFrame("Frame", nil, RightPage)
+spellBookHeader:SetSize(SB_CONTENT_W, 72)
+spellBookHeader:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 38, -10)
+spellBookHeader:Hide()
+
+local sbTitle = spellBookHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sbTitle:SetPoint("TOPLEFT", 0, 0)
+sbTitle:SetJustifyH("LEFT")
+sbTitle:SetFont(sbTitle:GetFont(), 17, "")
+sbTitle:SetTextColor(SB_COL.title[1], SB_COL.title[2], SB_COL.title[3])
+
+local sbLine1 = spellBookHeader:CreateTexture(nil, "ARTWORK")
+sbLine1:SetTexture("Interface\\Buttons\\WHITE8x8")
+sbLine1:SetSize(SB_CONTENT_W, 1)
+sbLine1:SetPoint("TOPLEFT", 0, -26)
+sbLine1:SetVertexColor(SB_COL.line[1], SB_COL.line[2], SB_COL.line[3], 0.9)
+
+local sbLine2 = spellBookHeader:CreateTexture(nil, "ARTWORK")
+sbLine2:SetTexture("Interface\\Buttons\\WHITE8x8")
+sbLine2:SetSize(SB_CONTENT_W, 1)
+sbLine2:SetPoint("TOPLEFT", 0, -29)
+sbLine2:SetVertexColor(SB_COL.line[1], SB_COL.line[2], SB_COL.line[3], 0.55)
+
+local sbSubMax = spellBookHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sbSubMax:SetPoint("TOPLEFT", 0, -38)
+sbSubMax:SetFont(sbSubMax:GetFont(), 11, "")
+sbSubMax:SetTextColor(SB_COL.soft[1], SB_COL.soft[2], SB_COL.soft[3])
+
+local sbSubFormula = spellBookHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sbSubFormula:SetPoint("LEFT", sbSubMax, "RIGHT", 8, 0)
+sbSubFormula:SetFont(sbSubFormula:GetFont(), 11, "")
+sbSubFormula:SetTextColor(SB_COL.muted[1], SB_COL.muted[2], SB_COL.muted[3])
+sbSubFormula:SetText("= 角色等级 × 5")
+
+local sbSubLearned = spellBookHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sbSubLearned:SetPoint("TOPRIGHT", spellBookHeader, "TOPRIGHT", 0, -38)
+sbSubLearned:SetJustifyH("RIGHT")
+sbSubLearned:SetFont(sbSubLearned:GetFont(), 11, "")
+sbSubLearned:SetTextColor(SB_COL.green[1], SB_COL.green[2], SB_COL.green[3])
+
+-- 列表滚动区
 local spellScrollFrame = CreateFrame("ScrollFrame", nil, RightPage, "UIPanelScrollFrameTemplate")
-spellScrollFrame:SetSize(310, 400)
-spellScrollFrame:SetPoint("TOPLEFT", 55, -72)
+spellScrollFrame:SetSize(360, 300)
+spellScrollFrame:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 20, -88)
+spellScrollFrame:Hide()
+
 local spellChild = CreateFrame("Frame", nil, spellScrollFrame)
 spellScrollFrame:SetScrollChild(spellChild)
-spellChild:SetWidth(280)
+spellChild:SetWidth(SB_CONTENT_W + 18) -- 左侧留 18 的内边距
 spellChild:SetHeight(1)
 
-local spellText = spellChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-spellText:SetPoint("TOPLEFT", 0, 0)
-spellText:SetWidth(280)
-spellText:SetJustifyH("LEFT")
-spellText:SetSpacing(8)
-spellText:SetFont(spellText:GetFont(), 16, "")
-spellText:SetTextColor(THEME.ink[1], THEME.ink[2], THEME.ink[3])
-spellScrollFrame:Hide()
+local sbEmpty = RightPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sbEmpty:SetPoint("TOP", RightPage, "TOP", 0, -130)
+sbEmpty:SetWidth(SB_CONTENT_W)
+sbEmpty:SetJustifyH("CENTER")
+sbEmpty:SetFont(sbEmpty:GetFont(), 13, "")
+sbEmpty:SetTextColor(SB_COL.soft[1], SB_COL.soft[2], SB_COL.soft[3])
+sbEmpty:SetText("该流派暂时没有词条。")
+sbEmpty:Hide()
+
+-- 详情卡（列表下方固定区域）
+local detailCard = CreateFrame("Frame", nil, RightPage, "BackdropTemplate")
+detailCard:SetSize(SB_CONTENT_W, 70)
+detailCard:SetPoint("TOPLEFT", RightPage, "TOPLEFT", 38, -396)
+detailCard:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Buttons\\WHITE8x8",
+    edgeSize = 1,
+})
+detailCard:SetBackdropColor(SB_COL.cardBg[1], SB_COL.cardBg[2], SB_COL.cardBg[3], 1)
+detailCard:SetBackdropBorderColor(SB_COL.gold[1], SB_COL.gold[2], SB_COL.gold[3], 1)
+detailCard:Hide()
+
+local detailIcon = detailCard:CreateTexture(nil, "ARTWORK")
+detailIcon:SetSize(32, 32)
+detailIcon:SetPoint("LEFT", 8, 0)
+detailIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+local detailName = detailCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+detailName:SetPoint("TOPLEFT", 50, -5)
+detailName:SetFont(detailName:GetFont(), 14, "")
+detailName:SetTextColor(SB_COL.ink[1], SB_COL.ink[2], SB_COL.ink[3])
+
+local detailDesc = detailCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+detailDesc:SetPoint("TOPLEFT", 50, -24)
+detailDesc:SetWidth(SB_CONTENT_W - 58)
+detailDesc:SetJustifyH("LEFT")
+detailDesc:SetFont(detailDesc:GetFont(), 11, "")
+detailDesc:SetTextColor(SB_COL.soft[1], SB_COL.soft[2], SB_COL.soft[3])
+
+local detailFoot = detailCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+detailFoot:SetPoint("BOTTOMLEFT", 50, 7)
+detailFoot:SetWidth(SB_CONTENT_W - 56)
+detailFoot:SetJustifyH("LEFT")
+detailFoot:SetFont(detailFoot:GetFont(), 9, "")
+detailFoot:SetTextColor(SB_COL.muted[1], SB_COL.muted[2], SB_COL.muted[3])
+
+local SB_RANKS = { "见习", "熟手", "精通", "大师", "宗师" }
+local sbRows, sbCatBars = {}, {}
+local sbCollapsed = {}
+local sbLastData
+local sbDetailDefault
+
+local SB_ShowDetail -- 先声明，行按钮创建时要用
+
+-- 「隐藏未学」开关：默认隐藏还没练过的称谓，点一下可以展开看全部
+local sbHideUnlearned = true
+
+local sbHideBtn = CreateFrame("Button", nil, spellBookHeader)
+sbHideBtn:SetSize(80, 14)
+-- 第二行：在「应用到提示」下面
+sbHideBtn:SetPoint("TOPLEFT", spellBookHeader, "TOPLEFT", 0, -58)
+local sbHideText = sbHideBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+sbHideText:SetAllPoints()
+sbHideText:SetJustifyH("LEFT")
+sbHideText:SetFont(sbHideText:GetFont(), 10, "")
+sbHideBtn:SetScript("OnClick", function()
+    sbHideUnlearned = not sbHideUnlearned
+    if sbLastData then UI.RefreshSpellBook(sbLastData) end
+end)
+
+local function SB_UpdateHideBtn()
+    if sbHideUnlearned then
+        sbHideText:SetText("隐藏未学：开")
+        sbHideText:SetTextColor(SB_COL.green[1], SB_COL.green[2], SB_COL.green[3])
+    else
+        sbHideText:SetText("隐藏未学：关")
+        sbHideText:SetTextColor(SB_COL.muted[1], SB_COL.muted[2], SB_COL.muted[3])
+    end
+end
+SB_UpdateHideBtn()
+
+local function SB_CreateRow()
+    local row = CreateFrame("Frame", nil, spellChild)
+    row:SetSize(SB_CONTENT_W, SB_ROW_H)
+    row:EnableMouse(true)
+
+    local bg = row:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Buttons\\WHITE8x8")
+    bg:SetAllPoints()
+    bg:SetVertexColor(SB_COL.rowEven[1], SB_COL.rowEven[2], SB_COL.rowEven[3], 1)
+    row.bg = bg
+
+    local mark = row:CreateTexture(nil, "ARTWORK")
+    mark:SetTexture("Interface\\Buttons\\WHITE8x8")
+    mark:SetSize(3, SB_ROW_H)
+    mark:SetPoint("LEFT", 0, 0)
+    mark:SetVertexColor(SB_COL.gold[1], SB_COL.gold[2], SB_COL.gold[3], 1)
+    row.mark = mark
+
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(SB_ICON, SB_ICON)
+    icon:SetPoint("LEFT", 8, 0)
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    row.icon = icon
+
+    local name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("LEFT", 34, 0)
+    name:SetWidth(78)
+    name:SetJustifyH("LEFT")
+    name:SetFont(name:GetFont(), 13, "")
+    row.name = name
+
+    local official = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    official:SetPoint("LEFT", 116, 0)
+    official:SetWidth(72)
+    official:SetJustifyH("LEFT")
+    official:SetFont(official:GetFont(), 10, "")
+    row.official = official
+
+    local bar = CreateFrame("Frame", nil, row, "BackdropTemplate")
+    bar:SetSize(SB_BAR_W, SB_BAR_H)
+    bar:SetPoint("LEFT", 192, 0)
+    bar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    bar:SetBackdropColor(SB_COL.barBg[1], SB_COL.barBg[2], SB_COL.barBg[3], 1)
+    bar:SetBackdropBorderColor(SB_COL.barEdge[1], SB_COL.barEdge[2], SB_COL.barEdge[3], 1)
+    bar.segs = {}
+    for i = 1, SB_BAR_SEGMENTS do
+        local seg = bar:CreateTexture(nil, "ARTWORK")
+        seg:SetSize(5, SB_BAR_H - 2)
+        seg:SetPoint("LEFT", 3 + (i - 1) * 5, 0)
+        seg:SetTexture("Interface\\Buttons\\WHITE8x8")
+        bar.segs[i] = seg
+    end
+    row.bar = bar
+
+    local num = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    num:SetPoint("LEFT", 272, 0)
+    num:SetWidth(24)
+    num:SetJustifyH("LEFT")
+    num:SetFont(num:GetFont(), 12, "")
+    row.num = num
+
+    local tier = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tier:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    tier:SetWidth(28)
+    tier:SetJustifyH("RIGHT")
+    tier:SetFont(tier:GetFont(), 10, "")
+    row.tier = tier
+
+    row:SetScript("OnEnter", function(self)
+        if self.data and SB_ShowDetail then SB_ShowDetail(self.data) end
+    end)
+    row:SetScript("OnLeave", function()
+        if SB_ShowDetail then SB_ShowDetail(sbDetailDefault) end
+    end)
+
+    return row
+end
+
+local function SB_CreateCatBar()
+    local bar = CreateFrame("Button", nil, spellChild)
+    bar:SetSize(SB_CONTENT_W, SB_CAT_H)
+
+    local bg = bar:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Buttons\\WHITE8x8")
+    bg:SetAllPoints()
+    bg:SetVertexColor(SB_COL.green[1], SB_COL.green[2], SB_COL.green[3], 1)
+
+    local name = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("LEFT", 6, 0)
+    name:SetFont(name:GetFont(), 11, "")
+    name:SetTextColor(SB_COL.cream[1], SB_COL.cream[2], SB_COL.cream[3])
+    bar.name = name
+
+    local function MakeCol(text, xOffset)
+        local fs = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", xOffset, 0)
+        fs:SetFont(fs:GetFont(), 10, "")
+        fs:SetTextColor(SB_COL.cream[1], SB_COL.cream[2], SB_COL.cream[3], 0.9)
+        fs:SetText(text)
+        return fs
+    end
+    bar.colName = MakeCol("称谓", 34)
+    bar.colOfficial = MakeCol("官方", 116)
+    bar.colBar = MakeCol("熟练度", 192)
+
+    local colTier = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    colTier:SetPoint("RIGHT", bar, "RIGHT", -2, 0)
+    colTier:SetJustifyH("RIGHT")
+    colTier:SetFont(colTier:GetFont(), 10, "")
+    colTier:SetTextColor(SB_COL.cream[1], SB_COL.cream[2], SB_COL.cream[3], 0.9)
+    colTier:SetText("阶位")
+    bar.colTier = colTier
+
+    bar:SetScript("OnClick", function(self)
+        if not self.category then return end
+        sbCollapsed[self.category] = not sbCollapsed[self.category]
+        if sbLastData then UI.RefreshSpellBook(sbLastData) end
+    end)
+
+    return bar
+end
+
+function SB_ShowDetail(item)
+    if not item then
+        detailCard:Hide()
+        return
+    end
+    detailCard:Show()
+    detailIcon:SetTexture(item.icon or FALLBACK_ICON)
+    detailName:SetText(item.name or "?")
+    detailDesc:SetText((item.note and item.note ~= "") and item.note or "尚未留下称谓之语。")
+    local foot = "官方：" .. (item.official or "?") ..
+        "  ·  " .. (item.prof or 0) .. "/" .. (item.maxProf or 0)
+    if item.rankIndex and item.rankIndex >= 5 then
+        foot = foot .. "  ·  已达宗师"
+    elseif item.nextRankName then
+        foot = foot .. "  ·  再积累 " .. (item.remainToNext or 1) ..
+            " 点升到「" .. item.nextRankName .. "」"
+    end
+    detailFoot:SetText(foot)
+end
 
 -- 称谓典籍 → 核心培养：点一下直接切到第 4 个「核心」页
 local coreJumpBtn = CreateFrame("Button", nil, RightPage, "UIPanelButtonTemplate")
@@ -860,65 +1157,270 @@ levelFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LEVEL_UP" then QueueSpellBookRefresh() end
 end)
 
+local sbIconCache = {}
+local function SB_GetTexture(official)
+    if not official then return FALLBACK_ICON end
+    if sbIconCache[official] ~= nil then return sbIconCache[official] end
+    local tex
+    if type(GetSpellTexture) == "function" then
+        local ok, value = pcall(GetSpellTexture, official)
+        if ok and value then tex = value end
+    end
+    if not tex and C_Spell and C_Spell.GetSpellTexture then
+        local spellID
+        if type(GetSpellInfo) == "function" then
+            local okID, _, _, _, _, _, _, id = pcall(GetSpellInfo, official)
+            if okID and type(id) == "number" then spellID = id end
+        end
+        if spellID then
+            local ok, value = pcall(C_Spell.GetSpellTexture, spellID)
+            if ok and value then tex = value end
+        end
+    end
+    tex = tex or FALLBACK_ICON
+    sbIconCache[official] = tex
+    return tex
+end
+
+-- 阶位：<20% 见习，<50% 熟手，<80% 精通，<100% 大师，=100% 宗师
+local function SB_RankInfo(prof, maxProf)
+    if maxProf <= 0 then return nil end
+    if prof <= 0 then
+        return nil, "见习", math.max(1, math.ceil(maxProf * 0.2) - prof)
+    end
+    local ratio = prof / maxProf
+    if ratio >= 1 then return 5 end
+    local index, threshold
+    if ratio < 0.2 then index, threshold = 1, 0.2
+    elseif ratio < 0.5 then index, threshold = 2, 0.5
+    elseif ratio < 0.8 then index, threshold = 3, 0.8
+    else index, threshold = 4, 1.0 end
+    return index, SB_RANKS[index + 1], math.max(1, math.ceil(maxProf * threshold) - prof)
+end
+
 function UI.RefreshSpellBook(previewData)
+    sbLastData = previewData
     if not previewData then
-        spellText:SetText("|cff6b5a45暂无数据|r")
+        sbEmpty:Show()
+        sbEmpty:SetText("暂无数据。")
+        spellBookHeader:Hide()
+        spellScrollFrame:Hide()
+        detailCard:Hide()
         return
     end
+    spellBookHeader:Show()
 
-    -- 词条 = 职业通用 + 流派覆盖，具体合并规则见上面的 BuildTermList
+    local showProf = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass)
+    local maxProf = GetMaxSkillProf()
+    sbTitle:SetText(previewData.name .. " · 称谓典籍")
+    -- 等级上限说明不要了，副标题行左边让给「应用到提示」复选框
+    sbSubMax:Hide()
+    sbSubFormula:Hide()
+
+    -- 回收所有行和分类条，后面按需复用
+    for _, row in ipairs(sbRows) do row:Hide() end
+    for _, bar in ipairs(sbCatBars) do bar:Hide() end
+
     local terms = BuildTermList(AP_DB.flavor.previewClass, previewData.id)
-    local key = tostring(AP_DB.flavor.previewClass) .. ":" .. tostring(previewData.id)
-
     if not terms or #terms == 0 then
-        spellText:SetText("|cff8c261a" .. previewData.name .. " · 称谓典籍|r\n\n" ..
-            "|cff6b5a45该流派暂时没有词条。\n\n词条库按“职业 → 流派”整理，目前只有德鲁伊的三个流派有初稿，其他职业会陆续补上。|r")
-    else
-        -- 只有预览自己的职业时才显示熟练度；预览别的职业没有参考意义
-        local showProf = (AP_DB.flavor.previewClass == AP_DB.flavor.currentClass)
+        sbEmpty:Show()
+        sbEmpty:SetText("该流派暂时没有词条。\n词条库按“职业 → 流派”整理，其他职业会陆续补上。")
+        spellScrollFrame:Hide()
+        detailCard:Hide()
+        sbSubLearned:SetText(showProf and "已修习 0 / 0" or "")
+        return
+    end
+    sbEmpty:Hide()
+    spellScrollFrame:Show()
+    SB_UpdateHideBtn()
 
-        local lines = { "|cff8c261a" .. previewData.name .. " · 称谓典籍|r" }
-        if showProf then
-            table.insert(lines, "|cff6b5a45熟练度上限：" .. GetMaxSkillProf() .. "（角色等级 × 5）|r")
-        end
-        table.insert(lines, "")
-        local lastCategory
-        for _, term in ipairs(terms) do
-            -- 换了分类就插一条金色小标题（同分类的条目自动归在一起）
-            if term.category and term.category ~= lastCategory then
-                table.insert(lines, (lastCategory and "\n" or "") .. "|cff8c261a【" .. term.category .. "】|r")
-                lastCategory = term.category
-            end
-            -- 核心技能 15 级后改过的名字，同步显示在称谓典籍里
-            local displayAlias = term.alias
-            local coreLevelForTerm
-            local spotlightDB = AP_DB.spotlight
-            if showProf and spotlightDB and spotlightDB.coreSpell == term.official then
-                local prof = AP_DB.flavor.skillProf or {}
-                coreLevelForTerm = math.min(30, math.floor(((prof[term.official] or 0) / 10)) + 1)
-                if type(spotlightDB.coreAlias) == "string" and spotlightDB.coreAlias ~= "" then
-                    displayAlias = spotlightDB.coreAlias
-                end
-            end
+    local spotlightDB = AP_DB.spotlight
+    local coreOfficial = spotlightDB and spotlightDB.coreSpell
+    local groups, groupMap = {}, {}
+    local learned, total = 0, #terms
 
-            -- 一行：绿色 = 本流派称呼，灰色 = 官方原名，方便对照
-            table.insert(lines, "|cff3f6b2e" .. (displayAlias or "?") .. "|r |cff6b5a45（官方：" .. (term.official or "?") .. "）|r")
-            -- 有备注的话，缩进一行灰字补一句说明
-            if term.note and term.note ~= "" then
-                table.insert(lines, "|cff6b5a45　　" .. term.note .. "|r")
-            end
-            -- 熟练度（天赋是被动的，不显示；预览别的职业时也不显示）
-            if showProf and term.category ~= "天赋" then
-                local coreTag = coreLevelForTerm
-                    and ("  |cff8c261a核心 Lv." .. coreLevelForTerm .. "|r") or ""
-                table.insert(lines, "|cff6b5a45　　熟练度：|r" ..
-                    FormatProfBar(GetSkillProf(term.official), GetMaxSkillProf()) .. coreTag)
-            end
+    for order, term in ipairs(terms) do
+        local official = term.official or "?"
+        local prof = showProf and GetSkillProf(official) or 0
+        if prof > 0 then learned = learned + 1 end
+
+        local displayName = term.alias or official
+        if showProf and coreOfficial == official
+            and type(spotlightDB.coreAlias) == "string" and spotlightDB.coreAlias ~= "" then
+            displayName = spotlightDB.coreAlias
         end
-        spellText:SetText(table.concat(lines, "\n"))
+
+        local rankIndex, nextRankName, remainToNext = SB_RankInfo(prof, maxProf)
+        local item = {
+            name = displayName,
+            official = official,
+            note = term.note,
+            prof = prof,
+            maxProf = maxProf,
+            order = order,
+            isCore = showProf and coreOfficial == official,
+            rankIndex = rankIndex,
+            nextRankName = nextRankName,
+            remainToNext = remainToNext,
+            icon = SB_GetTexture(official),
+        }
+        local category = term.category or "其他"
+        local group = groupMap[category]
+        if not group then
+            group = { category = category, items = {} }
+            groupMap[category] = group
+            groups[#groups + 1] = group
+        end
+        group.items[#group.items + 1] = item
     end
 
-    spellChild:SetHeight(spellText:GetStringHeight() + 30)
+    -- 分类内按熟练度降序；并列时用原顺序（order）做第二关键字，保证稳定
+    for _, group in ipairs(groups) do
+        table.sort(group.items, function(a, b)
+            if a.prof ~= b.prof then return a.prof > b.prof end
+            return a.order < b.order
+        end)
+    end
+
+    -- 德鲁伊的「变形」分类默认放到最后，其他分类保持原顺序
+    for i, group in ipairs(groups) do group.order = i end
+    if AP_DB.flavor.previewClass == "DRUID" then
+        table.sort(groups, function(a, b)
+            local am = (a.category == "变形")
+            local bm = (b.category == "变形")
+            if am ~= bm then return not am end
+            return a.order < b.order
+        end)
+    end
+
+    sbSubLearned:SetText(showProf and ("已修习 " .. learned .. " / " .. total) or "")
+
+    local y = 0
+    local rowCount, catCount = 0, 0
+    local firstItem
+
+    for _, group in ipairs(groups) do
+        local catLearned = 0
+        for _, item in ipairs(group.items) do
+            if item.prof > 0 then catLearned = catLearned + 1 end
+        end
+        local collapsed = sbCollapsed[group.category] and true or false
+
+        -- 隐藏未学时，整个分类都没练过就直接跳过
+        if not (sbHideUnlearned and catLearned == 0) then
+            catCount = catCount + 1
+            local catBar = sbCatBars[catCount]
+            if not catBar then
+                catBar = SB_CreateCatBar()
+                sbCatBars[catCount] = catBar
+            end
+            catBar.category = group.category
+            catBar.name:SetText(group.category .. (collapsed
+                and ("  " .. catLearned .. "/" .. #group.items) or ""))
+            catBar.colName:SetShown(not collapsed)
+            catBar.colOfficial:SetShown(not collapsed)
+            catBar.colBar:SetShown(not collapsed)
+            catBar.colTier:SetShown(not collapsed)
+            catBar:SetPoint("TOPLEFT", spellChild, "TOPLEFT", 18, -y)
+            catBar:Show()
+            y = y + SB_CAT_H + 4
+
+            if not collapsed then
+                for _, item in ipairs(group.items) do
+                    if not (sbHideUnlearned and item.prof <= 0) then
+                        rowCount = rowCount + 1
+                        local row = sbRows[rowCount]
+                        if not row then
+                            row = SB_CreateRow()
+                            sbRows[rowCount] = row
+                        end
+                        row.data = item
+                        row:SetPoint("TOPLEFT", spellChild, "TOPLEFT", 18, -y)
+                        row:Show()
+
+                        -- 核心技能行用淡红底；其余按偶数行底色
+                        if item.isCore then
+                            row.bg:SetVertexColor(SB_COL.coreRow[1], SB_COL.coreRow[2], SB_COL.coreRow[3], 1)
+                            row.bg:Show()
+                        elseif rowCount % 2 == 0 then
+                            row.bg:SetVertexColor(SB_COL.rowEven[1], SB_COL.rowEven[2], SB_COL.rowEven[3], 1)
+                            row.bg:Show()
+                        else
+                            row.bg:Hide()
+                        end
+                        row.mark:SetShown(item.prof > 0)
+
+                        row.icon:SetTexture(item.icon)
+                        row.icon:SetDesaturated(not (item.prof > 0))
+                        row.icon:SetAlpha(item.prof > 0 and 1 or 0.6)
+
+                        row.name:SetText(item.name or "?")
+                        row.name:SetTextColor(
+                            item.prof > 0 and SB_COL.ink[1] or SB_COL.soft[1],
+                            item.prof > 0 and SB_COL.ink[2] or SB_COL.soft[2],
+                            item.prof > 0 and SB_COL.ink[3] or SB_COL.soft[3])
+
+                        row.official:SetText(item.official or "?")
+                        row.official:SetTextColor(SB_COL.soft[1], SB_COL.soft[2], SB_COL.soft[3])
+
+                        local ratio = (maxProf > 0) and (item.prof / maxProf) or 0
+                        local filled = math.floor(ratio * SB_BAR_SEGMENTS + 0.5)
+                        if item.prof > 0 and filled < 1 then filled = 1 end
+                        if filled > SB_BAR_SEGMENTS then filled = SB_BAR_SEGMENTS end
+                        local fillColor = (item.prof > 0) and SB_COL.green or SB_COL.muted
+                        for i = 1, SB_BAR_SEGMENTS do
+                            local seg = row.bar.segs[i]
+                            if i <= filled then
+                                seg:SetVertexColor(fillColor[1], fillColor[2], fillColor[3], 1)
+                                seg:Show()
+                            else
+                                seg:Hide()
+                            end
+                        end
+
+                        row.num:SetText(tostring(item.prof or 0))
+                        row.num:SetTextColor(
+                            item.prof > 0 and SB_COL.green[1] or SB_COL.muted[1],
+                            item.prof > 0 and SB_COL.green[2] or SB_COL.muted[2],
+                            item.prof > 0 and SB_COL.green[3] or SB_COL.muted[3])
+
+                        if item.rankIndex then
+                            row.tier:SetText(SB_RANKS[item.rankIndex])
+                            row.tier:SetTextColor(SB_COL.gold[1], SB_COL.gold[2], SB_COL.gold[3])
+                        else
+                            row.tier:SetText("—")
+                            row.tier:SetTextColor(SB_COL.muted[1], SB_COL.muted[2], SB_COL.muted[3])
+                        end
+
+                        if not firstItem then firstItem = item end
+                        y = y + SB_ROW_H + SB_ROW_GAP
+                    end
+                end
+            end
+            y = y + SB_CAT_GAP
+        end
+    end
+
+    for i = rowCount + 1, #sbRows do sbRows[i]:Hide() end
+    for i = catCount + 1, #sbCatBars do sbCatBars[i]:Hide() end
+
+    spellChild:SetHeight(math.max(1, y + 6))
+
+    -- 隐藏未学后一个分类都不剩时给个提示，避免以为页面坏了
+    if catCount == 0 then
+        sbEmpty:Show()
+        sbEmpty:SetText("还没有修习任何称谓。\n在战斗中使用技能可以积累熟练度。")
+    end
+
+    -- 详情卡默认显示排序后的第一项
+    sbDetailDefault = firstItem
+    if firstItem then
+        SB_ShowDetail(firstItem)
+    else
+        detailCard:Hide()
+    end
+
+    local key = tostring(AP_DB.flavor.previewClass) .. ":" .. tostring(previewData.id)
     if lastSpellKey ~= key then
         spellScrollFrame:SetVerticalScroll(0)
         lastSpellKey = key
@@ -1049,17 +1551,15 @@ function UI.Refresh()
     if showingSpellBook then
         iconFrame:Hide()
         scrollFrame:Hide()
+        spellBookHeader:Show()
         spellScrollFrame:Show()
+        detailCard:Show()
+        sbEmpty:Hide()
 
         if canToggleAlias then
             tooltipToggle:Show()
-            spellScrollFrame:ClearAllPoints()
-            spellScrollFrame:SetPoint("TOPLEFT", 55, -72)
         else
             tooltipToggle:Hide()
-            -- 开关藏起来后把典籍上移，避免顶部空一块
-            spellScrollFrame:ClearAllPoints()
-            spellScrollFrame:SetPoint("TOPLEFT", 55, -30)
         end
 
         UI.RefreshSpellBook(previewData)
@@ -1076,7 +1576,10 @@ function UI.Refresh()
     else
         iconFrame:Show()
         scrollFrame:Show()
+        spellBookHeader:Hide()
         spellScrollFrame:Hide()
+        detailCard:Hide()
+        sbEmpty:Hide()
         tooltipToggle:Hide()
         coreJumpBtn:Hide()
     end
