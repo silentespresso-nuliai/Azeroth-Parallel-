@@ -344,11 +344,14 @@ local function IsHeadUnlocked()
     return AP_Spotlight and AP_Spotlight.GetCoreLevel and AP_Spotlight.GetCoreLevel() >= 50
 end
 
-local function Trigger(classToken, factionID, preview, previewDuration)
+local function Trigger(classToken, factionID, preview, previewDuration, respectLock)
     EnsureDB()
     if not preview then
         if not AP_DB.spotlight.headAuraEnabled then return end
         if not IsHeadUnlocked() then return end
+    elseif respectLock and not IsHeadUnlocked() then
+        -- 试放时只展示当前等级已经解锁的特效
+        return
     end
 
     classToken = classToken or CurrentClass()

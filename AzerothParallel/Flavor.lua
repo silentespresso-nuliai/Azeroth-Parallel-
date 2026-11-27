@@ -380,6 +380,7 @@ local function StartEditName()
     nameLabel:Hide()
     nameInput:Show()
     nameInput:SetText(AP_DB.flavor.customName)
+    nameInput:SetCursorPosition(0)
     nameInput:SetFocus()
     nameInput:HighlightText()
 end

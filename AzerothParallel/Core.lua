@@ -80,22 +80,24 @@ AP_MainFrame.CloseButton = closeBtn
 -- ------------------------------------------
 AP_Tabs = {}
 AP_Panels = {}
-local tabNames = { "设定", "职业流派", "预留", "核心奥义" }
-local tabLabels = { "设定", "职业\n流派", "奇遇\n社交", "高光\n特写" }
--- 顺序对应：设定 / 职业流派 / 奇遇社交 / 高光特写
+-- 视觉顺序 → 实际面板号：核心培养（面板 4）排第三，敬请期待（面板 3）排最后
+local tabPage = { 1, 2, 4, 3 }
+local tabNames = { "设定", "职业流派", "预留", "核心奥义" }          -- 按面板号命名
+local tabLabels = { "设定", "职业\n流派", "核心\n培养", "敬请\n期待" } -- 按视觉顺序
+-- 颜色/花纹仍按面板号：设定 / 职业流派 / 预留 / 核心奥义
 local tabColors = {
     { 0.70, 0.17, 0.15 },   -- 红：设定（龙纹）
     { 0.27, 0.58, 0.34 },   -- 绿：职业流派（藤蔓）
-    { 0.48, 0.28, 0.66 },   -- 紫：奇遇社交（巴洛克卷叶）
-    { 0.56, 0.56, 0.60 },   -- 蓝灰：高光特写（星芒）
+    { 0.48, 0.28, 0.66 },   -- 紫：预留 / 敬请期待（巴洛克卷叶）
+    { 0.56, 0.56, 0.60 },   -- 蓝灰：核心奥义 / 核心培养（星芒）
 }
 
 -- 页签花纹：按用户指定的 Deco_1..4 对应关系
 local tabDeco = {
     "Deco_2.tga", -- 设定：龙纹
     "Deco_1.tga", -- 职业流派：藤蔓
-    "Deco_3.tga", -- 奇遇社交：巴洛克卷叶
-    "Deco_4.tga", -- 高光特写：星芒
+    "Deco_3.tga", -- 预留 / 敬请期待：巴洛克卷叶
+    "Deco_4.tga", -- 核心奥义 / 核心培养：星芒
 }
 
 local TAB_W, TAB_H = 46, 104
@@ -129,12 +131,13 @@ local function SelectTab(index)
     end
 
     for i = 1, #AP_Tabs do
-        AP_Tabs[i].isSelected = (i == index)
+        local pageIndex = tabPage[i] or i
+        AP_Tabs[i].isSelected = (pageIndex == index)
         ApplyTabLayout(AP_Tabs[i])
-        if i == index then
-            AP_Panels[i]:Show()
+        if pageIndex == index then
+            AP_Panels[pageIndex]:Show()
         else
-            AP_Panels[i]:Hide()
+            AP_Panels[pageIndex]:Hide()
         end
     end
 end
@@ -143,12 +146,14 @@ end
 AP_SelectTab = SelectTab
 
 for i = 1, 4 do
-    local c = tabColors[i]
+    local pageIndex = tabPage[i] or i
+    local c = tabColors[pageIndex]
     local tab = CreateFrame("Button", "AP_Tab" .. i, AP_MainFrame)
     tab:SetSize(TAB_W, TAB_H)
     tab:SetFrameLevel(AP_MainFrame:GetFrameLevel() + 30)
     tab.baseX = TAB_X0 + (i - 1) * TAB_STEP
-    tab.tabName = tabNames[i]
+    tab.tabName = tabNames[pageIndex]
+    tab.pageIndex = pageIndex
 
     -- 阴影
     local shadow = tab:CreateTexture(nil, "BACKGROUND")
@@ -187,7 +192,7 @@ for i = 1, 4 do
 
     tab:SetScript("OnEnter", function(self) self.isHover = true; ApplyTabLayout(self) end)
     tab:SetScript("OnLeave", function(self) self.isHover = false; ApplyTabLayout(self) end)
-    tab:SetScript("OnClick", function() SelectTab(i) end)
+    tab:SetScript("OnClick", function() SelectTab(pageIndex) end)
     AP_Tabs[i] = tab
     ApplyTabLayout(tab)
 

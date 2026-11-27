@@ -239,10 +239,11 @@ local function CurrentClass()
     return AP_DB.flavor and AP_DB.flavor.currentClass
 end
 
-local function Trigger(classToken, factionID, preview, previewDuration)
+local function Trigger(classToken, factionID, preview, previewDuration, respectLock)
     -- 50 级头顶特效独立叠加，不覆盖 40 级环绕
+    -- respectLock：试放时只展示当前等级已解锁的特效
     if AP_HeadAura and AP_HeadAura.Trigger then
-        AP_HeadAura.Trigger(classToken, factionID, preview, previewDuration)
+        AP_HeadAura.Trigger(classToken, factionID, preview, previewDuration, respectLock)
     end
     EnsureDB()
     if not preview then

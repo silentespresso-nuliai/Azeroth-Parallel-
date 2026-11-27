@@ -1696,8 +1696,8 @@ end
 -- 从卡片第一个图标打开「核心奥义」页；只打开页面，不播放高光
 function UI.OpenCoreSettings()
     if AP_MainFrame then AP_MainFrame:Show() end
-    if AP_Tabs and AP_Tabs[4] and AP_Tabs[4].Click then
-        AP_Tabs[4]:Click() -- 第 4 页 = 核心奥义
+    if AP_SelectTab then
+        AP_SelectTab(4) -- 面板 4 = 核心奥义（视觉上排第三个页签）
     end
     if AP_Spotlight and AP_Spotlight.RefreshCoreUI then
         AP_Spotlight.RefreshCoreUI()

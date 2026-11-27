@@ -1482,15 +1482,20 @@ if panel and panel.LeftPage and panel.RightPage then
         chooseButtons[i] = btn
     end
 
-    -- ---------- 已选：核心技能名（图标移进球池中心） ----------
-    -- 原来头顶那块带图标的小卡片不要了，只在球池上方留一行技能名。
+    -- ---------- 已选：核心技能名 + 左侧职业图标 ----------
+    -- 整行略往右挪，给左边图标留位置；图标和技能名字同高。
     local coreName = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    coreName:SetPoint("TOP", coreFrame, "TOP", 0, -66)
-    coreName:SetWidth(300)
+    coreName:SetPoint("TOP", coreFrame, "TOP", 18, -64)
+    coreName:SetWidth(260)   -- 右侧留给 × 按钮
     coreName:SetJustifyH("CENTER")
-    coreName:SetFont(coreName:GetFont(), 20, "OUTLINE")
+    coreName:SetFont(coreName:GetFont(), 24, "OUTLINE")
     coreName:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     coreName:SetText("核心技能")
+
+    local classIcon = coreFrame:CreateTexture(nil, "OVERLAY")
+    classIcon:SetSize(26, 26)
+    classIcon:SetPoint("RIGHT", coreName, "CENTER", -80, 0)
+    classIcon:SetTexture("Interface\\Icons\\ClassIcon_" .. tostring(CurrentClass()))
 
     -- ---------- 球池：满溢程度 = 核心等级 ----------
     -- 旧客户端没有圆形遮罩，所以把球拆成 64 条横条：
@@ -1563,10 +1568,13 @@ if panel and panel.LeftPage and panel.RightPage then
     end
 
     local coreResetBtn = CreateFrame("Button", nil, coreFrame, "UIPanelButtonTemplate")
-    coreResetBtn:SetSize(26, 22)
-    coreResetBtn:SetPoint("TOPLEFT", orbFrame, "TOPRIGHT", -10, -6)
-    coreResetBtn:SetFrameLevel(orbFrame:GetFrameLevel() + 8)
+    coreResetBtn:SetSize(22, 20)
+    -- 和描述框右侧的「改」排在同一条竖线上（右边缘都贴 x = 370）
+    coreResetBtn:SetPoint("TOPRIGHT", coreFrame, "TOPRIGHT", -30, -70)
+    coreResetBtn:SetFrameLevel(coreFrame:GetFrameLevel() + 8)
     coreResetBtn:SetText("×")
+    local coreResetText = coreResetBtn:GetFontString()
+    if coreResetText then coreResetText:SetFont(coreResetText:GetFont(), 10, "") end
     coreResetBtn:SetScript("OnClick", function()
         local official = GetCoreSpellName()
         if official then
@@ -1583,21 +1591,38 @@ if panel and panel.LeftPage and panel.RightPage then
     coreLevelText:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
     coreLevelText:SetText("")
 
-    -- ---------- 核心描述（球池上方，约两行） ----------
-    local descLabel = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    descLabel:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -98)
-    descLabel:SetFont(descLabel:GetFont(), 13, "")
-    descLabel:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-    descLabel:SetText("核心描述")
+    -- ---------- 核心描述：普通文本 + 小方块编辑 ----------
+    -- 平时就是书页上的一段普通文字，不画输入框；
+    -- 右边有个小方块「改」，点一下才出现编辑框，回车或失焦保存。
+    local descCard = CreateFrame("Frame", nil, coreFrame)
+    descCard:SetSize(340, 64)
+    descCard:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -98)
+    descCard.currentDesc = ""
 
-    local coreDescInput = CreateFrame("EditBox", nil, coreFrame, "BackdropTemplate")
-    coreDescInput:SetSize(340, 40)
-    coreDescInput:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -116)
+    local descLabel = descCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    descLabel:SetPoint("TOPLEFT", descCard, "TOPLEFT", 0, 0)
+    descLabel:SetWidth(310)
+    descLabel:SetHeight(62)
+    descLabel:SetJustifyH("LEFT")
+    descLabel:SetSpacing(4)
+    descLabel:SetFont(descLabel:GetFont(), 13, "")
+    descLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    descLabel:SetText("")
+
+    local descEditBtn = CreateFrame("Button", nil, descCard, "UIPanelButtonTemplate")
+    descEditBtn:SetSize(22, 20)
+    descEditBtn:SetPoint("TOPRIGHT", descCard, "TOPRIGHT", 0, -2)
+    descEditBtn:SetText("改")
+    local descEditText = descEditBtn:GetFontString()
+    if descEditText then descEditText:SetFont(descEditText:GetFont(), 10, "") end
+
+    local coreDescInput = CreateFrame("EditBox", nil, descCard, "BackdropTemplate")
+    coreDescInput:SetSize(340, 64)
+    coreDescInput:SetPoint("TOPLEFT", descCard, "TOPLEFT", 0, 0)
     coreDescInput:SetFontObject("GameFontNormalSmall")
     coreDescInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    coreDescInput:SetTextInsets(6, 6, 4, 4)
+    coreDescInput:SetTextInsets(5, 5, 4, 4)
     coreDescInput:SetAutoFocus(false)
-    -- 多行：文字超出宽度会自动折到第二行
     coreDescInput:SetMultiLine(true)
     coreDescInput:SetMaxLetters(80)
     coreDescInput:SetBackdrop({
@@ -1605,19 +1630,52 @@ if panel and panel.LeftPage and panel.RightPage then
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 1,
     })
-    coreDescInput:SetBackdropColor(1, 0.96, 0.85, 0.55)
-    coreDescInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
-    coreDescInput:SetText(AP_DB.spotlight.coreDesc or "")
+    coreDescInput:SetBackdropColor(1, 0.96, 0.85, 0.70)
+    coreDescInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.70)
+    coreDescInput:Hide()
+
+    -- 编辑中标记：防止回车和失焦各保存一次
+    local descEditing = false
+
+    local function StopEditDesc()
+        descEditing = false
+        coreDescInput:Hide()
+        descLabel:Show()
+        descEditBtn:Show()
+    end
+
     local function SaveCoreDesc()
+        if not descEditing then return end
+        descEditing = false
         local value = Trim(Sanitize(coreDescInput:GetText() or "", 80))
         AP_DB.spotlight.coreDesc = value
-        coreDescInput:SetText(value)
+        StopEditDesc()
+        if RefreshCoreUI then RefreshCoreUI() end
     end
+
+    descEditBtn:SetScript("OnClick", function()
+        descEditing = true
+        descEditBtn:Hide()
+        descLabel:Hide()
+        coreDescInput:Show()
+        -- 用当前实际描述进入编辑；没有描述就从空框开始
+        coreDescInput:SetText(descCard.currentDesc or "")
+        coreDescInput:SetCursorPosition(0)
+        coreDescInput:SetFocus()
+        coreDescInput:HighlightText()
+    end)
+
     coreDescInput:SetScript("OnEnterPressed", function(self)
         SaveCoreDesc()
         self:ClearFocus()
     end)
-    coreDescInput:SetScript("OnEditFocusLost", SaveCoreDesc)
+    coreDescInput:SetScript("OnEscapePressed", function(self)
+        StopEditDesc()
+        self:ClearFocus()
+    end)
+    coreDescInput:SetScript("OnEditFocusLost", function()
+        if descEditing then SaveCoreDesc() end
+    end)
 
     -- ---------- 左页：等级解锁功能（只读） ----------
     local unlockTitle = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1822,7 +1880,7 @@ if panel and panel.LeftPage and panel.RightPage then
     aliasLabel:SetText("15 级 · 修改核心技能名字")
 
     local aliasInput = CreateFrame("EditBox", nil, right, "BackdropTemplate")
-    aliasInput:SetSize(240, 28)
+    aliasInput:SetSize(300, 28)
     aliasInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -116)
     aliasInput:SetFontObject("GameFontNormal")
     aliasInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
@@ -1844,6 +1902,7 @@ if panel and panel.LeftPage and panel.RightPage then
         local old = AP_DB.spotlight.coreAlias or ""
         AP_DB.spotlight.coreAlias = value
         aliasInput:SetText(value)
+        aliasInput:SetCursorPosition(0)   -- 失焦后从开头显示，不要停在末尾
         if value ~= old then
             print("|cffffd700[AP]|r 核心技能名字已保存：" .. (value ~= "" and value or "（已清除）"))
         end
@@ -1975,7 +2034,8 @@ if panel and panel.LeftPage and panel.RightPage then
         if not official then
             chooseFrame:Show()
             coreFrame:Hide()
-            descLabel:Hide()
+            descCard:Hide()
+            descEditing = false
             coreDescInput:Hide()
             if previewBtn then previewBtn:Hide() end
             if posBtn then posBtn:Hide() end
@@ -1985,8 +2045,7 @@ if panel and panel.LeftPage and panel.RightPage then
 
         chooseFrame:Hide()
         coreFrame:Show()
-        descLabel:Show()
-        coreDescInput:Show()
+        descCard:Show()
         if previewBtn then previewBtn:Show() end
         if posBtn then posBtn:Show() end
 
@@ -2007,7 +2066,42 @@ if panel and panel.LeftPage and panel.RightPage then
         -- 球池：等级决定液面高度，职业/流派色决定液体颜色
         local orbColorR, orbColorG, orbColorB = GetCoreThemeColor()
         SetOrbLevel(level, orbColorR, orbColorG, orbColorB)
-        coreDescInput:SetText(AP_DB.spotlight.coreDesc or "")
+
+        -- 描述没填过时，默认用当前流派「称谓典籍」里这个技能的新介绍（note）
+        local descText = AP_DB.spotlight.coreDesc or ""
+        if descText == "" and AP_FlavorManager and AP_FlavorManager.GetTermList then
+            local factionID = AP_DB.flavor and AP_DB.flavor.currentFaction
+            local terms = AP_FlavorManager.GetTermList(CurrentClass(), factionID)
+            if terms then
+                for _, term in ipairs(terms) do
+                    if term.official == official and term.note and term.note ~= "" then
+                        descText = Sanitize(term.note, 80)
+                        break
+                    end
+                end
+            end
+        end
+        -- 编辑中不覆盖玩家没打完的字；非编辑时显示普通文本
+        descCard.currentDesc = descText
+        if not descEditing then
+            coreDescInput:Hide()
+            descLabel:Show()
+            descEditBtn:Show()
+            if descText == "" then
+                descLabel:SetText("还没有对当前核心技能进行描述。")
+                descLabel:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+            else
+                descLabel:SetText(descText)
+                descLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+            end
+        end
+
+        -- 职业图标跟着当前职业走，尺寸跟随技能名文字高度，贴着文字左边缘
+        classIcon:SetTexture("Interface\\Icons\\ClassIcon_" .. tostring(CurrentClass()))
+        local nameWidth = coreName:GetStringWidth() or 120
+        local nameHeight = coreName:GetStringHeight() or 28
+        classIcon:SetSize(nameHeight, nameHeight)
+        classIcon:SetPoint("RIGHT", coreName, "CENTER", -nameWidth / 2 - 8, 0)
 
         local function LevelState(n)
             if level >= n then return "|cff3f6b2e已解锁|r" end
@@ -2027,7 +2121,10 @@ if panel and panel.LeftPage and panel.RightPage then
             aliasInput:Show()
             aliasSavedText:Show()
             aliasLabel:SetText("15 级 · 修改核心技能名字")
-            aliasInput:SetText(AP_DB.spotlight.coreAlias or "")
+            if not aliasInput:HasFocus() then
+                aliasInput:SetText(AP_DB.spotlight.coreAlias or "")
+                aliasInput:SetCursorPosition(0)
+            end
             if (AP_DB.spotlight.coreAlias or "") ~= "" then
                 aliasSavedText:SetText("已保存")
             else
@@ -2100,6 +2197,12 @@ if panel and panel.LeftPage and panel.RightPage then
     previewBtn:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 30, 20)
     previewBtn:SetText("试放我的高光")
     previewBtn:SetScript("OnClick", function()
+        local level = GetCoreLevel()
+        if level < 20 then
+            print("|cffffd700[AP]|r 核心技能到 20 级才能试放高光。")
+            return
+        end
+
         local classToken = CurrentClass()
         local custom = GetCustomSpell()
         local label, official, previewID
@@ -2120,15 +2223,16 @@ if panel and panel.LeftPage and panel.RightPage then
 
         -- 书本界面会挡住特效，先收起；整个序列结束后再恢复
         if AP_MainFrame then AP_MainFrame:Hide() end
-        if AP_Aura and AP_Aura.Trigger then
-            AP_Aura.Trigger(classToken, AP_DB.flavor and AP_DB.flavor.currentFaction, true)
+
+        -- 40 级才试放施放特效；respectLock 保证 50 级以下不提前出现头顶特效
+        if level >= 40 and AP_Aura and AP_Aura.Trigger then
+            AP_Aura.Trigger(classToken, AP_DB.flavor and AP_DB.flavor.currentFaction, true, 6, true)
         end
 
-        -- 第 1 个：自己
+        -- 20 级：自己 + 四名队友槽位 + 彩蛋（音效由 PlaySpotSound 按 30 级过滤）
         ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
             previewID and PORTRAIT_IMAGES[previewID], true)
 
-        -- 依次模拟另外四名队友，音效互斥错开
         local order = GetRemoteSlotOrder()
         local function ShowTeammate(n, delay)
             After(delay, function()
