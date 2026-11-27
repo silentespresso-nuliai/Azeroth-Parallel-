@@ -126,8 +126,16 @@ local function SelectTab(index)
     AP_DB.ui.lastTab = index
 
     -- 换页签时，整本书的花纹一起换
-    if AP_MainFrame.decoArt and tabDeco[index] then
-        AP_MainFrame.decoArt:SetTexture(MEDIA .. tabDeco[index])
+    if AP_MainFrame.decoArt then
+        if tabDeco[index] then
+            AP_MainFrame.decoArt:SetTexture(MEDIA .. tabDeco[index])
+        end
+        -- 核心培养页不叠花纹：Deco_4 的图案会在标题右侧形成几个淡色窄框
+        if index == 4 then
+            AP_MainFrame.decoArt:Hide()
+        else
+            AP_MainFrame.decoArt:Show()
+        end
     end
 
     for i = 1, #AP_Tabs do

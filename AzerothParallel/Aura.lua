@@ -77,6 +77,15 @@ local THEMES = {
     SHAMAN = {
         StandardShaman = { name = "元素火", color = { 1, 0.5, 0.2 }, styles = { "rise", "orbit" } },
         EarthenRing = { name = "大地", color = { 0.6, 0.7, 0.3 }, styles = { "orbit", "rise" } },
+        SpiritWalker = { name = "灵魂之雾", color = { 0.72, 0.88, 0.95 }, styles = { "rise", "fall", "orbit" }, blend = "BLEND" },
+        ShamanPriest = { name = "黑风", color = { 0.20, 0.16, 0.15 }, styles = { "orbit", "rise" }, blend = "BLEND" },
+        WitchDoctor = {
+            name = "巫毒",
+            color = { 0.55, 0.85, 0.4 },
+            styles = { "pulse", "fall" },
+            pulseTexture = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
+            pulseAlpha = 1.8,
+        },
     },
 }
 
@@ -146,17 +155,29 @@ for i = 1, 3 do
 end
 
 local themeColor = { 0.55, 0.82, 1 }
+local themePulseAlpha = 1
 local activeStyles = { orbit = false, rise = false, fall = false, pulse = false }
 
 local function ApplyTheme(theme)
     theme = theme or DEFAULT_THEME
     themeColor = theme.color or DEFAULT_THEME.color
+    themePulseAlpha = theme.pulseAlpha or 1
+
+    -- 主题可选普通混合（烟雾 / 黑风）或 ADD（发光）；没写就沿用 ADD
+    local blendMode = theme.blend or "ADD"
+    -- 脉冲组的纹理也能换：巫医用客户端自带的骷髅图标
+    local pulseTexture = theme.pulseTexture or "Interface\\Cooldown\\star4"
+
     for style, list in pairs(groups) do
         activeStyles[style] = false
         for _, p in ipairs(list) do
             p.tex:Hide()
             p.tex:SetAlpha(0)
+            p.tex:SetBlendMode(blendMode)
         end
+    end
+    for _, p in ipairs(groups.pulse) do
+        p.tex:SetTexture(pulseTexture)
     end
     for _, style in ipairs(theme.styles or DEFAULT_THEME.styles) do
         if groups[style] then
@@ -218,7 +239,7 @@ frame:SetScript("OnUpdate", function(_, elapsed)
             local scale = 0.65 + prog * 1.2
             p.tex:SetPoint("CENTER", frame, "CENTER", 0, -16)
             p.tex:SetScale(scale)
-            p.tex:SetAlpha((1 - prog) * 0.22)
+            p.tex:SetAlpha((1 - prog) * 0.22 * themePulseAlpha)
             if p.tex.SetRotation then pcall(p.tex.SetRotation, p.tex, elapsedTotal * 0.4 + i) end
         end
     end

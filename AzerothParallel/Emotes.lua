@@ -19,15 +19,19 @@ local function TrimText(text)
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+-- 提前声明：下面组装「最近常用」时要检查自定义槽里有没有写过 /表情
+local GetCustomConfig
+
 -- ---------- 可调参数 ----------
-local COLUMNS = 5     -- 每行几个图标（基础 8 个 + 自定义 2 个 = 10 个，正好两行）
+local COLUMNS = 5     -- 每行 5 个，10 个图标正好两行
 local BTN_SIZE = 44   -- 图标大小
 local BTN_GAP = 6     -- 图标间距
 local PAD = 14        -- 面板内边距
 local GLOBAL_CD = 1.5 -- 点一次后所有按钮冷却几秒，防止刷屏
 local PANEL_TITLE = "表情动作"
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local CUSTOM_COUNT = 2 -- 末尾固定保留两个「自定义」按钮（内容在设定页里填）
+-- 末尾 5 个自定义槽：前 2 个用 /e 发自定义表情，后 3 个在说话频道发自定义内容
+local CUSTOM_COUNT = 5
 local RP_PREFIX = "【RP】" -- 所有「说出来」的话前面都会带上这个标记
 
 -- ---------- 预设话术（「要说的话」里可选的内容，想加就往里添） ----------
@@ -58,17 +62,12 @@ local PHRASES = {
     "有事就来营地找我。",
 }
 
--- ---------- 基础动作列表（固定 8 个） ----------
+-- ---------- 基础动作列表（固定 5 个） ----------
 -- emote = "TOKEN"        -> 调用游戏内置表情（等同于输入 /joke /dance 等）
 -- lines = { ... }        -> 说话用的句子；pick = true 时弹出列表让玩家自己挑
+-- recent = true          -> 弹出「最近常用」表情列表
 -- icon 都是 Interface\Icons 下的图标，哪个显示成绿块/问号就换一个名字
 local EMOTES = {
-    {
-        name = "讲笑话",
-        desc = "做出「讲笑话」的表情，角色会自己说一句。",
-        emote = "JOKE",
-        icon = "Interface\\Icons\\Spell_Nature_Polymorph"
-    },
     {
         name = "要说的话",
         desc = "点开话术列表，挑一句在说话频道说出来。",
@@ -77,48 +76,143 @@ local EMOTES = {
         icon = "Interface\\Icons\\INV_Misc_Note_01"
     },
     {
-        name = "大笑",
-        desc = "哈哈哈哈哈！",
-        emote = "LAUGH",
+        name = "最近常用",
+        desc = "从最近用过的 10 个表情里挑一个。",
+        recent = true,
+        icon = "Interface\\Icons\\INV_Misc_Book_09"
+    },
+    {
+        name = "打招呼",
+        desc = "向周围的人打个招呼。",
+        emote = "HELLO",
+        icon = "Interface\\Icons\\Ability_Hunter_BeastCall"
+    },
+    {
+        name = "再见",
+        desc = "挥手告别。",
+        emote = "BYE",
         icon = "Interface\\Icons\\INV_Misc_Balloon_01"
     },
     {
-        name = "跳舞",
-        desc = "来一段即兴舞蹈。",
-        emote = "DANCE",
-        icon = "Interface\\Icons\\INV_Misc_Drum_01"
-    },
-    {
-        name = "欢呼",
-        desc = "大声欢呼！",
-        emote = "CHEER",
-        icon = "Interface\\Icons\\Ability_Warrior_RallyingCry"
-    },
-    {
-        name = "秀肌肉",
-        desc = "展示你结实的肱二头肌。",
-        emote = "FLEX",
-        icon = "Interface\\Icons\\Spell_Nature_Strength"
-    },
-    {
-        name = "火车",
-        desc = "呜呜——小火车开动啦！",
-        emote = "TRAIN",
-        icon = "Interface\\Icons\\INV_Misc_Toy_10"
-    },
-    {
-        name = "咆哮",
-        desc = "仰天长啸。",
-        emote = "ROAR",
-        icon = "Interface\\Icons\\Ability_Druid_DemoralizingRoar"
+        name = "魔法耗尽",
+        desc = "表示你的魔法值耗尽了。",
+        emote = "OOM",
+        icon = "Interface\\Icons\\Spell_Shadow_ManaBurn"
     },
 }
 
--- 两个自定义按钮的默认图标（想让它们更好认，可以换成别的图标名字）
+-- 5 个自定义槽的默认图标：前 2 个是 /e 表情，后 3 个是说话
 local CUSTOM_ICONS = {
     "Interface\\Icons\\INV_Misc_Note_02",
     "Interface\\Icons\\INV_Misc_Note_03",
+    "Interface\\Icons\\INV_Misc_Note_04",
+    "Interface\\Icons\\INV_Misc_Note_05",
+    "Interface\\Icons\\INV_Misc_Note_06",
 }
+
+-- 其他图标按钮已经占用的表情：最近常用里不再重复出现
+local RESERVED_EMOTES = {}
+for _, entry in ipairs(EMOTES) do
+    if entry.emote then RESERVED_EMOTES[entry.emote] = true end
+end
+
+-- 判断某个表情是否已被固定按钮或自定义槽（写成 /dance 这种）占用
+local function IsReservedEmote(token)
+    if not token or token == "" then return false end
+    if RESERVED_EMOTES[token] then return true end
+    for i = 1, CUSTOM_COUNT do
+        local text = GetCustomConfig(i).text
+        if text and text:sub(1, 1) == "/" then
+            local cmd = text:match("^/(%S+)")
+            if cmd and cmd:upper() == token then return true end
+        end
+    end
+    return false
+end
+
+-- 最近常用表情：没历史记录时用这份默认名单补齐 10 个（不含固定按钮上的三个）
+local RECENT_DEFAULT = {
+    { token = "JOKE",   text = "讲笑话" },
+    { token = "LAUGH",  text = "大笑" },
+    { token = "DANCE",  text = "跳舞" },
+    { token = "CHEER",  text = "欢呼" },
+    { token = "FLEX",   text = "秀肌肉" },
+    { token = "ROAR",   text = "咆哮" },
+    { token = "TRAIN",  text = "火车" },
+    { token = "BOW",    text = "鞠躬" },
+    { token = "SALUTE", text = "敬礼" },
+    { token = "THANK",  text = "感谢" },
+    { token = "KISS",   text = "飞吻" },
+    { token = "CRY",    text = "哭泣" },
+    { token = "FLIRT",  text = "调情" },
+    { token = "PITY",   text = "同情" },
+}
+
+local EMOTE_NAMES = {}
+for _, item in ipairs(RECENT_DEFAULT) do
+    EMOTE_NAMES[item.token] = item.text
+end
+EMOTE_NAMES["HELLO"] = "打招呼"
+EMOTE_NAMES["BYE"] = "再见"
+EMOTE_NAMES["OOM"] = "魔法耗尽"
+
+-- 手动在聊天框输入 /sleep 这类表情时的中文名，用来补进「最近常用」
+local EXTRA_EMOTE_NAMES = {
+    SLEEP = "睡觉", SIT = "坐下", STAND = "站起", WAVE = "挥手", HI = "嗨",
+    GREET = "问候", SMILE = "微笑", SHY = "害羞", TIRED = "疲惫", YAWN = "打哈欠",
+    SIGH = "叹气", LOL = "大笑", GRIN = "咧嘴笑", ROFL = "笑翻", SILLY = "傻笑",
+    BOW = "鞠躬", SALUTE = "敬礼", THANK = "感谢", KISS = "飞吻", CRY = "哭泣",
+    FLIRT = "调情", PITY = "同情", MOON = "月亮", POINT = "指", TALK = "交谈",
+    CHICKEN = "小鸡", RUDE = "粗鲁", SPIT = "吐口水", CONGRATULATE = "祝贺",
+    HUG = "拥抱", WELCOME = "欢迎", FAREWELL = "告别", NO = "不", YES = "是",
+    WAIT = "等待", BECKON = "招手", CALM = "冷静", INSULT = "辱骂", MERCY = "求饶",
+    SHOO = "驱赶", SLAP = "耳光", STARE = "凝视", THREATEN = "威胁", VETO = "否决",
+    VIOLIN = "拉小提琴", BOAST = "吹嘘", BORED = "无聊", COMFORT = "安慰",
+    CONFUSED = "困惑", COUGH = "咳嗽", CURTSEY = "屈膝礼", DROOL = "流口水",
+    FLEE = "逃跑", GLOAT = "幸灾乐祸", GROAN = "呻吟", GROVEL = "卑躬屈膝",
+    HUNGRY = "饥饿", MOAN = "哀叹", MOURN = "哀悼", PLEAD = "恳求", SHOUT = "喊叫",
+    SHRUG = "耸肩", SMACK = "咂嘴", SURPRISED = "惊讶", TAP = "轻敲", TEASE = "逗弄",
+    TOAST = "干杯", THIRSTY = "口渴", VICTORY = "胜利", APOLOGIZE = "道歉",
+    EXCUSE = "借口", OFFER = "提供", ROAR = "咆哮", TRAIN = "火车", FLEX = "秀肌肉",
+    DANCE = "跳舞", CHEER = "欢呼", JOKE = "讲笑话", LAUGH = "大笑",
+}
+for token, name in pairs(EXTRA_EMOTE_NAMES) do
+    if not EMOTE_NAMES[token] then EMOTE_NAMES[token] = name end
+end
+
+-- 记一次表情使用：把 token 提到最前面，最多留 10 个；固定按钮上的表情不记
+local function RecordEmote(token)
+    if not token or token == "" or IsReservedEmote(token) then return end
+    local db = EnsureEmoteDB()
+    db.recentEmotes = db.recentEmotes or {}
+    for i = #db.recentEmotes, 1, -1 do
+        if db.recentEmotes[i] == token then
+            table.remove(db.recentEmotes, i)
+        end
+    end
+    table.insert(db.recentEmotes, 1, token)
+    while #db.recentEmotes > 10 do
+        table.remove(db.recentEmotes)
+    end
+end
+
+-- 组装「最近常用」列表：排除其他按钮已定义的表情，最多 10 个
+local function GetRecentItems()
+    local items, seen = {}, {}
+    local db = EnsureEmoteDB()
+    local recent = db.recentEmotes or {}
+
+    local function Add(token)
+        if #items >= 10 then return end
+        if not token or token == "" or IsReservedEmote(token) or seen[token] then return end
+        seen[token] = true
+        items[#items + 1] = { text = EMOTE_NAMES[token] or token, token = token }
+    end
+
+    for _, token in ipairs(recent) do Add(token) end
+    for _, item in ipairs(RECENT_DEFAULT) do Add(item.token) end
+    return items
+end
 
 -- ---------- 卡片配色主题（经典 / 烈焰 / 月光 / 森林 / 幽暗 / 任务） ----------
 -- border       = 标题、名牌、话术列表、按钮悬停的强调色
@@ -177,14 +271,14 @@ local currentTheme = THEMES.classic
 
 -- 读取（必要时先建立）第 i 个自定义槽的存档。
 -- 存档长这样：AP_DB.emote.custom[1] = { name = "打个招呼", text = "你好呀。" }
-local function GetCustomConfig(i)
+function GetCustomConfig(i)
     local db = EnsureEmoteDB()
     db.custom = db.custom or {}
     db.custom[i] = db.custom[i] or {}
     return db.custom[i]
 end
 
--- 把「基础 8 个 + 自定义 2 个」拼成当前要显示的完整列表。
+-- 把「固定 5 个 + 自定义 5 个」拼成当前要显示的完整列表。
 -- 每次调用都重新读存档，所以设定页里一保存，按钮提示就会立刻更新。
 local function GetEntries()
     local list = {}
@@ -194,13 +288,16 @@ local function GetEntries()
 
     for i = 1, CUSTOM_COUNT do
         local cfg = GetCustomConfig(i)
-        local name = cfg.name
-        if not name or name == "" then name = "自定义 " .. i end
+        local isEmoteSlot = i <= 2
+        -- 名称固定，不再读取旧存档里的自定义名称，避免旧名字残留在提示里
+        local name = isEmoteSlot and ("自定义表情 " .. i) or ("自定义说话 " .. (i - 2))
 
         local desc
         if cfg.text and cfg.text ~= "" then
             if cfg.text:sub(1, 1) == "/" then
                 desc = "执行：" .. cfg.text
+            elseif isEmoteSlot then
+                desc = "表情：" .. cfg.text
             else
                 desc = "说：" .. cfg.text
             end
@@ -213,6 +310,7 @@ local function GetEntries()
             desc = desc,
             text = cfg.text,
             customSlot = i, -- 记下这是第几个自定义槽，点击时用来判断有没有填内容
+            customIsEmote = isEmoteSlot,
             icon = CUSTOM_ICONS[i] or FALLBACK_ICON,
         }
     end
@@ -255,11 +353,16 @@ local function Perform(entry)
     if entry.emote then
         -- 有友方玩家目标时，表情会带上目标（比如对着某人飞吻）
         pcall(DoEmote, entry.emote, FriendlyTargetUnit())
+        RecordEmote(entry.emote)
     elseif entry.text and entry.text ~= "" then
-        -- 自定义按钮：/ 开头的执行动作，其余内容在说话频道说出来
         if entry.text:sub(1, 1) == "/" then
+            -- 以 / 开头：仍然当作表情命令执行
             RunSlashText(entry.text)
+        elseif entry.customIsEmote then
+            -- 自定义表情槽：等同于 /e 文本
+            SendChatMessage(entry.text, "EMOTE")
         else
+            -- 自定义说话槽：在说话频道带 RP 前缀
             SendChatMessage(RP_PREFIX .. entry.text, "SAY")
         end
     elseif entry.lines and #entry.lines > 0 then
@@ -281,7 +384,7 @@ end
 local UI = {}
 AP_EmoteUI = UI
 
-local rows = math.ceil((#EMOTES + CUSTOM_COUNT) / COLUMNS) -- 总格数 = 基础 8 + 自定义 2
+local rows = math.ceil((#EMOTES + CUSTOM_COUNT) / COLUMNS) -- 总格数 = 固定 5 + 自定义 5
 local gridW = COLUMNS * BTN_SIZE + (COLUMNS - 1) * BTN_GAP
 local gridH = rows * BTN_SIZE + (rows - 1) * BTN_GAP
 local TITLE_AREA = 34
@@ -1440,8 +1543,8 @@ for i = 1, #initialEntries do
         local now = GetEntries()[i]
         if not now then return end
 
-        -- 「要说的话」：先弹出列表，选完那一句才算真正使用
-        if now.pick then
+        -- 「要说的话」和「最近常用」：先弹出列表，选完才算真正使用
+        if now.pick or now.recent then
             if picker:IsShown() then
                 picker:Hide()
             else
@@ -1454,8 +1557,8 @@ for i = 1, #initialEntries do
 
         -- 自定义按钮但还没填内容：提示去哪儿设置，不进入冷却
         if now.customSlot and (not now.text or now.text == "") then
-            print("|cffffd700[AP]|r 自定义 " .. now.customSlot ..
-                " 还没有内容，请打开 /AP →「设定」→「表情动作」填写。")
+            print("|cffffd700[AP]|r「" .. now.name ..
+                "」还没有内容，请打开 /AP →「设定」→「表情动作」填写。")
             return
         end
 
@@ -1467,12 +1570,12 @@ for i = 1, #initialEntries do
 end
 
 -- ==========================================
--- 「要说的话」选择列表（点第 2 个按钮时弹出）
+-- 选择列表（「要说的话」和「最近常用」共用，点第 1 / 第 2 个按钮时弹出）
 -- ==========================================
 local PICKER_W = 360
 local PICKER_ROW_H = 26
 local PICKER_LIST_TOP = 46 -- 顶部标题占掉的高度
-local PICKER_MAX_ROWS = 9 -- 一屏最多显示几句，多出来的滚动查看
+local PICKER_MAX_ROWS = 10 -- 一屏最多显示几行，多出来的滚动查看
 local PICKER_H = PICKER_LIST_TOP + PICKER_MAX_ROWS * PICKER_ROW_H + 10
 
 picker = CreateFrame("Frame", "AP_EmotePicker", frame, "BackdropTemplate")
@@ -1526,17 +1629,86 @@ end
 
 pickerScroll:SetScript("OnMouseWheel", function(_, delta) PickerScrollBy(delta) end)
 
+-- 第 1、2 个按钮右上角的小 ×：列表打开时出现，点一下就收起
+local pickerOwnerIndex
+local pickerCloseBtns = {}
+local function UpdatePickerCloseBtns()
+    for i = 1, 2 do
+        local closeBtn = pickerCloseBtns[i]
+        if closeBtn then
+            if picker:IsShown() and pickerOwnerIndex == i then
+                closeBtn:Show()
+            else
+                closeBtn:Hide()
+            end
+        end
+    end
+end
+
+for i = 1, 2 do
+    -- 自己画一个明显的红色小方块 ×，不依赖客户端模板
+    local closeBtn = CreateFrame("Button", nil, buttons[i], "BackdropTemplate")
+    closeBtn:SetSize(18, 18)
+    closeBtn:SetPoint("TOPRIGHT", buttons[i], "TOPRIGHT", 6, 6)
+    closeBtn:SetFrameLevel(buttons[i]:GetFrameLevel() + 20)
+    closeBtn:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    closeBtn:SetBackdropColor(0.55, 0.12, 0.10, 0.95)
+    closeBtn:SetBackdropBorderColor(0.95, 0.80, 0.35, 1)
+
+    local mark = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    mark:SetPoint("CENTER", 0, 0)
+    mark:SetFont(mark:GetFont(), 14, "OUTLINE")
+    mark:SetText("×")
+    mark:SetTextColor(1, 0.95, 0.8)
+
+    closeBtn:SetScript("OnClick", function() picker:Hide() end)
+    closeBtn:Hide()
+    pickerCloseBtns[i] = closeBtn
+end
+
+picker:HookScript("OnShow", UpdatePickerCloseBtns)
+picker:HookScript("OnHide", UpdatePickerCloseBtns)
+
+-- 按 ESC 也能收起选择列表；卡片本身不注册，避免误关整张卡片
+if UISpecialFrames then
+    local registered = false
+    for _, name in ipairs(UISpecialFrames) do
+        if name == "AP_EmotePicker" then
+            registered = true
+            break
+        end
+    end
+    if not registered then
+        table.insert(UISpecialFrames, "AP_EmotePicker")
+    end
+end
+
 -- 列表里的每一行都是按钮，第一次用到时才创建，之后反复复用
 local pickerRows = {}
 
 function UI.OpenPicker(entry)
-    local lines = entry.lines or {}
+    -- 「要说的话」是句子列表；「最近常用」是表情列表，行点击后直接做表情
+    local items
+    if entry.recent then
+        pickerTitle:SetText("最近常用表情")
+        items = GetRecentItems()
+    else
+        pickerTitle:SetText(entry.name or "要说的话")
+        items = {}
+        for _, line in ipairs(entry.lines or {}) do
+            items[#items + 1] = { text = line }
+        end
+    end
 
-    -- 内容总高度按句子数量算；超出一屏的部分靠滚动查看
-    pickerContent:SetHeight(math.max(#lines * PICKER_ROW_H, 1))
+    -- 内容总高度按条目数量算；超出一屏的部分靠滚动查看
+    pickerContent:SetHeight(math.max(#items * PICKER_ROW_H, 1))
     pickerScroll:SetVerticalScroll(0)
 
-    for i = 1, #lines do
+    for i = 1, #items do
         local lineBtn = pickerRows[i]
         if not lineBtn then
             lineBtn = CreateFrame("Button", nil, pickerContent, "BackdropTemplate")
@@ -1560,7 +1732,7 @@ function UI.OpenPicker(entry)
             -- 同一个按钮会被反复使用，所以点击时读 self.line，
             -- 不要直接捕获循环变量（否则每行都会说最后一句）。
             lineBtn:SetScript("OnClick", function(self)
-                if self.line then UI.PickLine(self.line) end
+                if self.item then UI.PickItem(self.item) end
             end)
 
             -- 鼠标停在句子上也能用滚轮翻列表
@@ -1571,27 +1743,36 @@ function UI.OpenPicker(entry)
         end
 
         lineBtn:Show()
-        lineBtn.line = lines[i]
-        lineBtn.text:SetText(lines[i])
+        lineBtn.item = items[i]
+        lineBtn.text:SetText(items[i].text)
     end
 
     -- 这次内容比上次少时，把多出来的旧行藏起来
-    for i = #lines + 1, #pickerRows do
+    for i = #items + 1, #pickerRows do
         pickerRows[i]:Hide()
     end
 
     -- 贴在表情面板左边；屏幕太窄时 SetClampedToScreen 会自动把它拉回屏幕内
+    pickerOwnerIndex = entry.recent and 2 or 1
     picker:ClearAllPoints()
     picker:SetPoint("TOPRIGHT", frame, "TOPLEFT", -12, 0)
     picker:Show()
+    UpdatePickerCloseBtns()
 end
 
--- 选好一句：说出来 + 所有按钮进入冷却 + 收起列表。
--- 这里不再检查冷却：点开列表再挑一句本身就已经是明确的动作了，
+-- 选好一条：说话或做表情 + 所有按钮进入冷却 + 收起列表。
+-- 这里不再检查冷却：点开列表再挑一条本身就已经是明确的动作了，
 -- 选中后列表会立刻收起，也不存在连点刷屏的问题。
-function UI.PickLine(line)
+function UI.PickItem(item)
+    if not item then return end
     StartCooldown()
-    SendChatMessage(RP_PREFIX .. line, "SAY")
+    if item.token then
+        -- 最近常用：做表情，并记录到最近列表
+        pcall(DoEmote, item.token, FriendlyTargetUnit())
+        RecordEmote(item.token)
+    else
+        SendChatMessage(RP_PREFIX .. item.text, "SAY")
+    end
     picker:Hide()
 end
 
@@ -1750,57 +1931,14 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     end)
     if AP_RegisterSettingsEntry then AP_RegisterSettingsEntry(modelBtn) end
 
-    -- ---------- 右侧：使用说明 + 两个自定义按钮的编辑 ----------
-    -- 右页已由 Danmaku.lua 做成分页，这里挂到「表情与动作」那一页里
+    -- ---------- 右侧：风格 → 显示开关 → 5 个自定义槽 ----------
+    -- 右页已由 Danmaku.lua 做成分页，这里挂到「表情动作」那一页里
     local page = AP_EmoteSettingsPage or settingPanel.RightPage
 
-    local header = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    header:SetPoint("TOP", page, "TOP", 0, -6)
-    header:SetText("自定义按钮")
-    header:SetFont(header:GetFont(), 20, "")
-    header:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-
-    local hint = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    hint:SetPoint("TOP", header, "BOTTOM", 0, -8)
-    hint:SetWidth(340)
-    hint:SetJustifyH("CENTER")
-    hint:SetFont(hint:GetFont(), 13, "")
-    hint:SetSpacing(5)
-    hint:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-    hint:SetText("「表情动作」提供表情、话术和自定义按钮。\n勾选下方开关即可显示 / 收起卡片。\n以 / 开头的内容会当作表情或命令执行。")
-
-    -- ---------- 卡片显示开关 ----------
-    local cardToggle = CreateFrame("CheckButton", "AP_EmoteCardToggle", page, "ChatConfigCheckButtonTemplate")
-    cardToggle:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -6)
-    local cardToggleText = _G[cardToggle:GetName() .. "Text"]
-    cardToggleText:SetText("显示表情动作卡片")
-    cardToggleText:SetFont(cardToggleText:GetFont(), 14, "")
-    cardToggleText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    cardToggle:SetChecked(card:IsShown())
-    cardToggle:SetScript("OnClick", function(self)
-        if self:GetChecked() then UI.Show() else UI.Hide() end
-    end)
-    card:HookScript("OnShow", function()
-        cardToggle:SetChecked(true)
-        EnsureEmoteDB().cardEnabled = true
-    end)
-    card:HookScript("OnHide", function()
-        cardToggle:SetChecked(false)
-        EnsureEmoteDB().cardEnabled = false
-    end)
-
-    local cardDesc = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cardDesc:SetPoint("TOPLEFT", cardToggle, "BOTTOMLEFT", 4, -2)
-    cardDesc:SetWidth(320)
-    cardDesc:SetJustifyH("LEFT")
-    cardDesc:SetFont(cardDesc:GetFont(), 12, "")
-    cardDesc:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-    cardDesc:SetText("勾选后显示卡片，也可以随时用 /ape 开关。\n按住 Shift 拖动卡片可调整位置。")
-
-    -- ---------- 卡片配色主题选择 ----------
+    -- 最上面是卡片风格
     local themeRow = CreateFrame("Frame", nil, page)
     themeRow:SetSize(340, 26)
-    themeRow:SetPoint("TOP", cardDesc, "BOTTOM", 0, -8)
+    themeRow:SetPoint("TOP", page, "TOP", 0, -10)
 
     local themeLabel = themeRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     themeLabel:SetPoint("LEFT", themeRow, "LEFT", 0, 0)
@@ -1829,15 +1967,42 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         themeButtons[id] = btn
     end
 
-    -- 两个编辑器的「从存档读入输入框」函数。等存档真正加载完再统一调用。
+    -- ---------- 卡片显示开关 ----------
+    local cardToggle = CreateFrame("CheckButton", "AP_EmoteCardToggle", page, "ChatConfigCheckButtonTemplate")
+    cardToggle:SetPoint("TOPLEFT", themeRow, "BOTTOMLEFT", 0, -12)
+    local cardToggleText = _G[cardToggle:GetName() .. "Text"]
+    cardToggleText:SetText("显示表情动作卡片")
+    cardToggleText:SetFont(cardToggleText:GetFont(), 14, "")
+    cardToggleText:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    cardToggle:SetChecked(card:IsShown())
+    cardToggle:SetScript("OnClick", function(self)
+        if self:GetChecked() then UI.Show() else UI.Hide() end
+    end)
+    card:HookScript("OnShow", function()
+        cardToggle:SetChecked(true)
+        EnsureEmoteDB().cardEnabled = true
+    end)
+    card:HookScript("OnHide", function()
+        cardToggle:SetChecked(false)
+        EnsureEmoteDB().cardEnabled = false
+    end)
+
+    -- 5 个编辑器的「从存档读入输入框」函数。等存档真正加载完再统一调用。
     local editorLoaders = {}
 
-    -- 一个自定义槽的编辑器：名称 + 内容 + 保存。
-    -- anchor 是它上方的元素，编辑器会挂在 anchor 下面，两个槽自然排成一列。
+    -- 一个自定义槽：标签 + 一行输入框 + 保存。
+    -- 前 2 个槽是 /e 表情，后 3 个槽是说话。
     local function BuildCustomEditor(slot, anchor)
+        local isEmoteSlot = slot <= 2
         local block = CreateFrame("Frame", nil, page, "BackdropTemplate")
-        block:SetSize(340, 118)
-        block:SetPoint("TOP", anchor, "BOTTOM", 0, -12)
+        block:SetSize(340, 46)
+        if anchor then
+            -- 后面的槽跟着上一块往下排，宽度相同，中心自然对齐
+            block:SetPoint("TOP", anchor, "BOTTOM", 0, -6)
+        else
+            -- 第一块直接水平居中挂在右页顶部，避免跟着 checkbox 的窄锚点歪到左页
+            block:SetPoint("TOP", page, "TOP", 0, -84)
+        end
         block:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -1848,75 +2013,43 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         block:SetBackdropBorderColor(AP_Theme.line[1], AP_Theme.line[2], AP_Theme.line[3], 0.45)
 
         local label = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        label:SetPoint("TOPLEFT", 12, -10)
-        label:SetText("自定义 " .. slot)
+        label:SetPoint("TOPLEFT", 10, -5)
+        label:SetFont(label:GetFont(), 12, "")
+        label:SetText(isEmoteSlot and ("自定义表情 " .. slot) or ("自定义说话 " .. (slot - 2)))
         label:SetTextColor(AP_Theme.accent[1], AP_Theme.accent[2], AP_Theme.accent[3])
 
-        -- 名称：显示在鼠标提示的标题上，留空就是「自定义 N」
-        local nameBox = CreateFrame("EditBox", nil, block, "InputBoxTemplate")
-        nameBox:SetSize(170, 22)
-        nameBox:SetPoint("TOPRIGHT", block, "TOPRIGHT", -12, -6)
-        nameBox:SetAutoFocus(false)
-        nameBox:SetMaxLetters(24)
-        nameBox:SetText("")
-        nameBox:SetScript("OnEscapePressed", nameBox.ClearFocus)
-
-        local nameLabel = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        nameLabel:SetPoint("RIGHT", nameBox, "LEFT", -8, 0)
-        nameLabel:SetText("名称")
-        nameLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-
-        local contentLabel = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        contentLabel:SetPoint("TOPLEFT", block, "TOPLEFT", 12, -42)
-        contentLabel:SetText("要说的话")
-        contentLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-
         local textBox = CreateFrame("EditBox", nil, block, "InputBoxTemplate")
-        textBox:SetPoint("TOPLEFT", block, "TOPLEFT", 12, -62)
-        textBox:SetPoint("TOPRIGHT", block, "TOPRIGHT", -12, -62)
-        textBox:SetHeight(22)
+        textBox:SetPoint("TOPLEFT", block, "TOPLEFT", 10, -24)
+        textBox:SetPoint("TOPRIGHT", block, "TOPRIGHT", -66, -24)
+        textBox:SetHeight(20)
         textBox:SetAutoFocus(false)
-        textBox:SetMaxLetters(120)
+        textBox:SetMaxLetters(isEmoteSlot and 80 or 120)
         textBox:SetText("")
         textBox:SetScript("OnEscapePressed", textBox.ClearFocus)
 
         local save = CreateFrame("Button", nil, block, "UIPanelButtonTemplate")
-        save:SetSize(68, 22)
-        save:SetPoint("BOTTOMRIGHT", block, "BOTTOMRIGHT", -12, 10)
+        save:SetSize(50, 20)
+        save:SetPoint("TOPRIGHT", block, "TOPRIGHT", -8, -24)
         save:SetText("保存")
 
-        local status = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        status:SetPoint("RIGHT", save, "LEFT", -10, 0)
-        status:SetJustifyH("RIGHT")
-        status:SetTextColor(0.25, 0.45, 0.18)
-
-        -- 从当前存档里把内容读进两个输入框。
         -- 注意不能在文件加载时直接读：那时 SavedVariables 还没注入，读到的会是空表。
         local function LoadFromDB()
             local cfg = GetCustomConfig(slot)
-            nameBox:SetText(cfg.name or "")
             textBox:SetText(cfg.text or "")
-            status:SetText("")
         end
         editorLoaders[#editorLoaders + 1] = LoadFromDB
 
         local function Save()
             -- 关键：保存时重新取一次存档表。
-            -- 如果沿用加载时拿到的旧表，写入的内容不会进 SavedVariables，
-            -- 表现就是「保存后没反应，/reload 后清空」。
             local cfg = GetCustomConfig(slot)
-            cfg.name = TrimText(nameBox:GetText())
             cfg.text = TrimText(textBox:GetText())
-            status:SetText("已保存")
+            textBox:SetText(cfg.text)
+            textBox:SetCursorPosition(0)
             -- 让浮动面板里的按钮提示立刻刷新
             if UI.Refresh then UI.Refresh() end
         end
 
         save:SetScript("OnClick", Save)
-        nameBox:SetScript("OnEnterPressed", function(self)
-            Save()
-            self:ClearFocus()
-        end)
         textBox:SetScript("OnEnterPressed", function(self)
             Save()
             self:ClearFocus()
@@ -1925,8 +2058,10 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
         return block
     end
 
-    local firstBlock = BuildCustomEditor(1, themeRow)
-    BuildCustomEditor(2, firstBlock)
+    local lastBlock = BuildCustomEditor(1)
+    for slot = 2, CUSTOM_COUNT do
+        lastBlock = BuildCustomEditor(slot, lastBlock)
+    end
 
     -- ---------- 正面形象分页 ----------
     local modelPage = AP_ModelSettingsPage or page
@@ -1995,5 +2130,30 @@ if settingPanel and settingPanel.LeftPage and settingPanel.RightPage then
     -- 之后每次打开主界面也同步一次，避免别处改了存档后输入框还是旧的
     if AP_MainFrame then
         AP_MainFrame:HookScript("OnShow", RefreshSettingsPage)
+    end
+end
+
+-- ==========================================
+-- 手动输入的表情也记进「最近常用」
+-- ==========================================
+-- 玩家自己在聊天框敲 /sleep、/dance 时不会经过插件的 DoEmote，
+-- 所以在发送前读一下命令，只记录，不改变原来的发送行为。
+local function TryRecordSlashEmote(text)
+    if type(text) ~= "string" then return end
+    local cmd = text:match("^/(%S+)")
+    if not cmd then return end
+    local token = cmd:upper()
+    if EMOTE_NAMES[token] and not IsReservedEmote(token) then
+        RecordEmote(token)
+    end
+end
+
+if type(ChatEdit_SendText) == "function" then
+    local originalSendText = ChatEdit_SendText
+    ChatEdit_SendText = function(editBox, ...)
+        if editBox and editBox.GetText then
+            TryRecordSlashEmote(editBox:GetText())
+        end
+        return originalSendText(editBox, ...)
     end
 end

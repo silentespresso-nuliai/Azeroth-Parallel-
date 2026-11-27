@@ -23,8 +23,8 @@ local function EnsureDB()
     if type(db.soundIndex) ~= "number" or db.soundIndex < -1 or db.soundIndex > 3 then
         db.soundIndex = 0
     end
-    -- 广播开关不再在界面里提供，默认始终开启，保证团队/小队能看到彼此的高光
-    db.broadcast = true
+    -- 广播开关不再在界面里提供；只在没有存档值时默认开启，不覆盖旧存档
+    if db.broadcast == nil then db.broadcast = true end
     -- 释放间距（分钟）：1~10，默认 1 分钟
     if type(db.cooldownMinutes) ~= "number" or db.cooldownMinutes < 0 or db.cooldownMinutes > 10 then
         db.cooldownMinutes = 1
@@ -1282,12 +1282,6 @@ local panel = AP_Panels and AP_Panels[4]
 if panel and panel.LeftPage and panel.RightPage then
     local left, right = panel.LeftPage, panel.RightPage
 
-    local title = left:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    title:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -30)
-    title:SetFont(title:GetFont(), 24, "")
-    title:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    title:SetText("核心奥义")
-
     -- ==========================================
     -- 左页重做：核心技能培养
     -- ==========================================
@@ -1485,10 +1479,10 @@ if panel and panel.LeftPage and panel.RightPage then
     -- ---------- 已选：核心技能名 + 左侧职业图标 ----------
     -- 整行略往右挪，给左边图标留位置；图标和技能名字同高。
     local coreName = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    coreName:SetPoint("TOP", coreFrame, "TOP", 18, -64)
+    coreName:SetPoint("TOP", coreFrame, "TOP", 18, -30)
     coreName:SetWidth(260)   -- 右侧留给 × 按钮
     coreName:SetJustifyH("CENTER")
-    coreName:SetFont(coreName:GetFont(), 24, "OUTLINE")
+    coreName:SetFont(coreName:GetFont(), 28, "OUTLINE")
     coreName:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     coreName:SetText("核心技能")
 
@@ -1570,7 +1564,7 @@ if panel and panel.LeftPage and panel.RightPage then
     local coreResetBtn = CreateFrame("Button", nil, coreFrame, "UIPanelButtonTemplate")
     coreResetBtn:SetSize(22, 20)
     -- 和描述框右侧的「改」排在同一条竖线上（右边缘都贴 x = 370）
-    coreResetBtn:SetPoint("TOPRIGHT", coreFrame, "TOPRIGHT", -30, -70)
+    coreResetBtn:SetPoint("TOPRIGHT", coreFrame, "TOPRIGHT", -30, -38)
     coreResetBtn:SetFrameLevel(coreFrame:GetFrameLevel() + 8)
     coreResetBtn:SetText("×")
     local coreResetText = coreResetBtn:GetFontString()
@@ -1596,7 +1590,7 @@ if panel and panel.LeftPage and panel.RightPage then
     -- 右边有个小方块「改」，点一下才出现编辑框，回车或失焦保存。
     local descCard = CreateFrame("Frame", nil, coreFrame)
     descCard:SetSize(340, 64)
-    descCard:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -98)
+    descCard:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -70)
     descCard.currentDesc = ""
 
     local descLabel = descCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
