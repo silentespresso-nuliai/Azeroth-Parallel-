@@ -80,22 +80,24 @@ AP_MainFrame.CloseButton = closeBtn
 -- ------------------------------------------
 AP_Tabs = {}
 AP_Panels = {}
-local tabNames = { "设定", "职业流派", "预留", "核心奥义" }
-local tabLabels = { "设定", "职业\n流派", "奇遇\n社交", "高光\n特写" }
--- 顺序对应：设定 / 职业流派 / 奇遇社交 / 高光特写
+-- 视觉顺序 → 实际面板号：核心培养（面板 4）排第三，敬请期待（面板 3）排最后
+local tabPage = { 1, 2, 4, 3 }
+local tabNames = { "设定", "职业流派", "预留", "核心奥义" }          -- 按面板号命名
+local tabLabels = { "设定", "职业\n流派", "核心\n培养", "敬请\n期待" } -- 按视觉顺序
+-- 颜色/花纹仍按面板号：设定 / 职业流派 / 预留 / 核心奥义
 local tabColors = {
     { 0.70, 0.17, 0.15 },   -- 红：设定（龙纹）
     { 0.27, 0.58, 0.34 },   -- 绿：职业流派（藤蔓）
-    { 0.48, 0.28, 0.66 },   -- 紫：奇遇社交（巴洛克卷叶）
-    { 0.56, 0.56, 0.60 },   -- 蓝灰：高光特写（星芒）
+    { 0.48, 0.28, 0.66 },   -- 紫：预留 / 敬请期待（巴洛克卷叶）
+    { 0.56, 0.56, 0.60 },   -- 蓝灰：核心奥义 / 核心培养（星芒）
 }
 
 -- 页签花纹：按用户指定的 Deco_1..4 对应关系
 local tabDeco = {
     "Deco_2.tga", -- 设定：龙纹
     "Deco_1.tga", -- 职业流派：藤蔓
-    "Deco_3.tga", -- 奇遇社交：巴洛克卷叶
-    "Deco_4.tga", -- 高光特写：星芒
+    "Deco_3.tga", -- 预留 / 敬请期待：巴洛克卷叶
+    "Deco_4.tga", -- 核心奥义 / 核心培养：星芒
 }
 
 local TAB_W, TAB_H = 46, 104
@@ -124,17 +126,26 @@ local function SelectTab(index)
     AP_DB.ui.lastTab = index
 
     -- 换页签时，整本书的花纹一起换
-    if AP_MainFrame.decoArt and tabDeco[index] then
-        AP_MainFrame.decoArt:SetTexture(MEDIA .. tabDeco[index])
+    if AP_MainFrame.decoArt then
+        if tabDeco[index] then
+            AP_MainFrame.decoArt:SetTexture(MEDIA .. tabDeco[index])
+        end
+        -- 核心培养页不叠花纹：Deco_4 的图案会在标题右侧形成几个淡色窄框
+        if index == 4 then
+            AP_MainFrame.decoArt:Hide()
+        else
+            AP_MainFrame.decoArt:Show()
+        end
     end
 
     for i = 1, #AP_Tabs do
-        AP_Tabs[i].isSelected = (i == index)
+        local pageIndex = tabPage[i] or i
+        AP_Tabs[i].isSelected = (pageIndex == index)
         ApplyTabLayout(AP_Tabs[i])
-        if i == index then
-            AP_Panels[i]:Show()
+        if pageIndex == index then
+            AP_Panels[pageIndex]:Show()
         else
-            AP_Panels[i]:Hide()
+            AP_Panels[pageIndex]:Hide()
         end
     end
 end
@@ -143,12 +154,14 @@ end
 AP_SelectTab = SelectTab
 
 for i = 1, 4 do
-    local c = tabColors[i]
+    local pageIndex = tabPage[i] or i
+    local c = tabColors[pageIndex]
     local tab = CreateFrame("Button", "AP_Tab" .. i, AP_MainFrame)
     tab:SetSize(TAB_W, TAB_H)
     tab:SetFrameLevel(AP_MainFrame:GetFrameLevel() + 30)
     tab.baseX = TAB_X0 + (i - 1) * TAB_STEP
-    tab.tabName = tabNames[i]
+    tab.tabName = tabNames[pageIndex]
+    tab.pageIndex = pageIndex
 
     -- 阴影
     local shadow = tab:CreateTexture(nil, "BACKGROUND")
@@ -187,7 +200,7 @@ for i = 1, 4 do
 
     tab:SetScript("OnEnter", function(self) self.isHover = true; ApplyTabLayout(self) end)
     tab:SetScript("OnLeave", function(self) self.isHover = false; ApplyTabLayout(self) end)
-    tab:SetScript("OnClick", function() SelectTab(i) end)
+    tab:SetScript("OnClick", function() SelectTab(pageIndex) end)
     AP_Tabs[i] = tab
     ApplyTabLayout(tab)
 
@@ -268,7 +281,7 @@ aboutIntro:SetWidth(330)
 aboutIntro:SetJustifyH("LEFT")
 aboutIntro:SetSpacing(5)
 aboutIntro:SetFont(aboutIntro:GetFont(), 14, "")
-aboutIntro:SetText("一套面向角色扮演的界面扩展：把职业、天赋与技能的官方称呼，换成符合角色种族与流派背景的说法；并提供聊天弹幕、称谓典籍、表情动作、同好名录与高光特写。\n\n所有改动只发生在本地界面，不修改服务器数据。RP 名称与流派简称只通过插件消息，在同队/同团/同会且双方都安装插件的人之间共享；可用 /AP net 关闭。")
+aboutIntro:SetText("一套面向角色扮演的界面扩展：把职业、天赋与技能的官方称呼，换成符合角色种族与流派背景的说法；并提供聊天弹幕、称谓典籍、表情动作、同好名录与高光特写。\n\n所有改动只发生在本地界面，不修改服务器数据。RP 名称与流派简称只通过插件消息，在同队/同团/同会且双方都安装插件的人之间共享；可在设定页的「奇遇社交」分页关闭。")
 AP_Theme.Paint(aboutIntro, "ink")
 
 -- 分割线
@@ -493,6 +506,19 @@ SlashCmdList["AZEROTHPARALLEL"] = function(msg)
             AP_Spotlight.AddCoreProf(tonumber(arg) or 10)
         else
             print("|cffffd700[AP]|r 高光模块未加载。")
+        end
+        return
+    end
+    -- /AP frost：开关核心 40 级冰霜环绕；/AP frost preview 强制预览 5 秒
+    if cmd == "frost" then
+        if AP_Aura then
+            if arg == "preview" and AP_Aura.Preview then
+                AP_Aura.Preview()
+            elseif AP_Aura.Toggle then
+                AP_Aura.Toggle()
+            end
+        else
+            print("|cffffd700[AP]|r 冰霜特效模块未加载。")
         end
         return
     end

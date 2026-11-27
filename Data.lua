@@ -392,6 +392,30 @@ AP_FlavorData = {
                 description = "大地之环是各族萨满共同的团体，他们不效忠任何阵营，只守护世界本身的平衡。\n\n当元素失衡，大地之环就会出现在每一个需要他们的地方。\n\n无论你从哪里来，元素都不问出身。",
                 tiers = MakeTiers("萨满", { "元素使者", "大地使者", "环之长老", "大地之环领袖" })
             },
+            {
+                id = "SpiritWalker",
+                name = "灵魂行者",
+                reqFaction = "Horde",
+                icon = "Interface\\Icons\\Spell_Nature_SpiritWolf",
+                description = "灵魂行者是牛头人萨满中最接近先祖之灵的一支。他们行走在现世与灵魂世界之间，把死者的低语带给生者。\n\n对他们来说，元素不是工具，而是需要聆听的亲人。\n\n风里有名字，大地记得每一个脚印。",
+                tiers = MakeTiers("行者", { "灵魂向导", "荒野行者", "星界行者", "先祖之魂" })
+            },
+            {
+                id = "ShamanPriest",
+                name = "萨满祭司",
+                reqFaction = "Horde",
+                icon = "Interface\\Icons\\Spell_Nature_ChainLightning",
+                description = "兽人的萨满祭司是部落最古老的传统守护者。他们以图腾与元素立誓，把力量献给部族，也把部族的命运扛在肩上。\n\n祭祀不是仪式，是每天都要做的事。\n\n元素看着你，部落也看着你。",
+                tiers = MakeTiers("祭司", { "元素祭司", "图腾祭司", "先祖祭司", "大萨满" })
+            },
+            {
+                id = "WitchDoctor",
+                name = "巫医",
+                reqFaction = "Horde",
+                icon = "Interface\\Icons\\Spell_Nature_Polymorph",
+                description = "巫医来自巨魔的古老巫毒传统，草药、面具、妖术与先祖之灵都是他们的工具。\n\n他们不称自己的力量为萨满之道，但元素听得懂他们的鼓声。\n\n别随便碰巫医的药罐。",
+                tiers = MakeTiers("巫医", { "药巫", "妖术师", "暗影巫医", "巫毒大师" })
+            },
         }
     },
 }

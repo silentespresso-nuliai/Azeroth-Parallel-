@@ -20,13 +20,13 @@ local function EnsureDB()
     if db.enabled == nil then db.enabled = true end
     if db.sound == nil then db.sound = true end
     -- 音效选择：0 = 随机，1~3 = 固定 Media/sounds 里的第几个
-    if type(db.soundIndex) ~= "number" or db.soundIndex < 0 or db.soundIndex > 3 then
+    if type(db.soundIndex) ~= "number" or db.soundIndex < -1 or db.soundIndex > 3 then
         db.soundIndex = 0
     end
-    -- 广播开关不再在界面里提供，默认始终开启，保证团队/小队能看到彼此的高光
-    db.broadcast = true
-    -- 释放间距（分钟）：1~10，默认 1 分钟
-    if type(db.cooldownMinutes) ~= "number" or db.cooldownMinutes < 1 or db.cooldownMinutes > 10 then
+    -- 广播开关不再在界面里提供；只在没有存档值时默认开启，不覆盖旧存档
+    if db.broadcast == nil then db.broadcast = true end
+    -- 释放间隔（分钟）：1~10，默认 1 分钟
+    if type(db.cooldownMinutes) ~= "number" or db.cooldownMinutes < 0 or db.cooldownMinutes > 10 then
         db.cooldownMinutes = 1
     end
     if db.position ~= "TOPLEFT" and db.position ~= "TOPRIGHT" then
@@ -35,20 +35,18 @@ local function EnsureDB()
     -- 自定义大招：只存一个字符串，可以是技能名，也可以是技能 ID（纯数字）。
     -- 留空 = 使用下面写好的默认职业表。
     if type(db.customSpell) ~= "string" then db.customSpell = "" end
-    -- 核心技能培养：选定的官方技能名 + 15 级后自定义的名字 + 是否在施放时喊话
+    -- 核心技能培养：选定的官方技能名 + 15 级后自定义的名字
     if type(db.coreSpell) ~= "string" then db.coreSpell = "" end
     if type(db.coreAlias) ~= "string" then db.coreAlias = "" end
     if type(db.coreDesc) ~= "string" then db.coreDesc = "" end
-    if db.coreChatEnabled == nil then db.coreChatEnabled = true end
     -- 老存档兼容：之前设过自定义大招的，直接当作核心技能继续培养
     if db.coreSpell == "" and db.customSpell ~= "" then
         db.coreSpell = db.customSpell
     end
-    -- 触发时的喊话/动作：文本可以留空；模式 OFF = 不喊
-    if type(db.chatText) ~= "string" then db.chatText = "" end
-    if db.chatMode ~= "YELL" and db.chatMode ~= "EMOTE" and db.chatMode ~= "OFF" then
-        db.chatMode = "OFF"
-    end
+    -- 5 级喊话功能已整体删除，清掉旧存档里的残留字段
+    db.coreChatEnabled = nil
+    db.chatText = nil
+    db.chatMode = nil
     -- 是否只在组队/团队中触发（默认关闭，单人做任务也能看高光）
     if db.groupOnly == nil then db.groupOnly = false end
 end
@@ -158,13 +156,35 @@ local function IsSecret(value)
     return ok and secret
 end
 
+-- 按 UTF-8 字符数截断；直接按字节切会把汉字从中间切断
+local function TruncateUTF8(text, maxChars)
+    if not maxChars or maxChars <= 0 then return "" end
+    local count, i = 0, 1
+    local len = #text
+    while i <= len do
+        if count >= maxChars then return text:sub(1, i - 1) end
+        local byte = text:byte(i)
+        local step = 1
+        if byte >= 240 then
+            step = 4
+        elseif byte >= 224 then
+            step = 3
+        elseif byte >= 192 then
+            step = 2
+        end
+        i = i + step
+        count = count + 1
+    end
+    return text
+end
+
 -- 清理广播字段：去掉换行、管道符、颜色代码，并限制长度
 local function Sanitize(text, maxLength)
     if text == nil or IsSecret(text) then return "" end
     local ok, result = pcall(function()
         local s = tostring(text)
         s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("[|\n\r]", "")
-        if maxLength and #s > maxLength then s = s:sub(1, maxLength) end
+        if maxLength then s = TruncateUTF8(s, maxLength) end
         return s
     end)
     return (ok and result) or ""
@@ -193,14 +213,14 @@ local function GetCoreSpellName()
     return value
 end
 
--- 培养等级：每 10 点熟练度升 1 级，1 级起步，最高 30 级。
+-- 培养等级：每 6 点熟练度升 1 级，1 级起步，最高 50 级。
 -- 熟练度数据与「称谓典籍」共用 AP_DB.flavor.skillProf，不另存一份。
 local function GetCoreLevel()
     local official = GetCoreSpellName()
     if not official then return 0 end
     local prof = AP_DB.flavor and AP_DB.flavor.skillProf
     local points = (prof and prof[official]) or 0
-    return math.min(30, math.floor(points / 10) + 1)
+    return math.min(50, math.floor(points / 6) + 1)
 end
 
 local function GetCorePoints()
@@ -372,6 +392,7 @@ local lastSpotSoundHandle
 local function PlaySpotSound(kind, force)
     EnsureDB()
     if not AP_DB.spotlight.sound then return end
+    if (AP_DB.spotlight.soundIndex or 0) == -1 then return end
     -- 30 级才解锁本地音效；试放同样遵守，低等级不白给声音
     local coreSpell = GetCoreSpellName()
     if coreSpell and GetCoreLevel() < 30 then return end
@@ -998,12 +1019,12 @@ local lastRemoteAt = {}
 
 local function OnAddonMessage(prefix, message, sender)
     EnsureDB()
-    if not AP_DB.spotlight.enabled then return end
     -- 勾选“只在组队/团队中触发”后，单人状态直接跳过
     if AP_DB.spotlight.groupOnly and not IsInGroupNow() then return end
     if type(prefix) ~= "string" or IsSecret(prefix) or prefix ~= PREFIX then return end
     if type(message) ~= "string" or IsSecret(message) then return end
 
+    if not AP_DB.spotlight.enabled then return end
     local classToken, displayName, label = message:match("^H1|([^|]*)|([^|]*)|(.*)$")
     if not classToken or not CLASS_TOKENS[classToken] then return end
 
@@ -1036,7 +1057,7 @@ end
 local lastCastAt = {}
 local lastShowAt = 0
 
--- 本地触发间隔由玩家在右页「释放间距」调整（1~10 分钟）
+-- 本地触发间隔由玩家在右页「释放间隔」调整（1~10 分钟）
 local lastTriggerAt = 0
 
 -- 调试日志：默认关闭。游戏里输入 /AP spotlog 可开关。
@@ -1045,34 +1066,6 @@ local debugEnabled = false
 local function DebugPrint(text)
     if not debugEnabled then return end
     print("|cffffd700[高光调试]|r " .. tostring(text))
-end
-
--- 按设置喊话或做表情。只在本机真正施放时调用，试放和接收队友消息都不喊。
-local function DoSpotChat()
-    EnsureDB()
-    if not AP_DB.spotlight.coreChatEnabled then return end
-    local text = Trim(Sanitize(AP_DB.spotlight.chatText, 120))
-    if text == "" then return end
-
-    -- 先在聊天框里发一条 /e 预告，让周围人知道你在放核心技能
-    local coreName = GetCoreDisplayLabel(GetCoreSpellName(), GetCoreSpellName())
-    if type(SendChatMessage) == "function" then
-        pcall(SendChatMessage, "正在释放核心奥义：" .. (coreName or "核心技能") .. "！", "EMOTE")
-    end
-
-    -- 输入以 / 开头就按表情执行（例如 /moon）
-    local emoteCmd = text:match("^/(%S+)")
-    if emoteCmd then
-        if type(DoEmote) == "function" then
-            pcall(DoEmote, string.upper(emoteCmd))
-        end
-        return
-    end
-
-    -- 普通文本按大喊发送
-    if type(SendChatMessage) == "function" then
-        pcall(SendChatMessage, text, "YELL")
-    end
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -1127,10 +1120,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
         AP_SuppressSpotlightSpell = nil
         AP_SuppressSpotlightAt = nil
     end
+    local suppressedHighLight = false
     if spellID and AP_SuppressSpotlightSpell == spellID then
         AP_SuppressSpotlightSpell = nil
         AP_SuppressSpotlightAt = nil
-        return
+        suppressedHighLight = true
     end
 
     if debugEnabled then
@@ -1140,9 +1134,13 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     end
 
     EnsureDB()
-    if not AP_DB.spotlight.enabled then return end
+    -- 高光总开关只拦高光视觉和广播；40/50 特效不受它影响
+    local highLightEnabled = AP_DB.spotlight.enabled
     -- 勾选“只在组队/团队中触发”后，单人状态直接跳过
-    if AP_DB.spotlight.groupOnly and not IsInGroupNow() then return end
+    if AP_DB.spotlight.groupOnly and not IsInGroupNow() then
+        DebugPrint("触发范围是“仅组队/团队”，当前是单人，整次触发跳过")
+        return
+    end
 
     local classToken = CurrentClass()
     if not classToken then return end
@@ -1151,6 +1149,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     local custom = GetCustomSpell()
     local coreLevel = custom and GetCoreLevel() or 0
     local info
+
+    if debugEnabled then
+        DebugPrint("核心技能=" .. tostring(custom)
+            .. "，核心等级=" .. tostring(coreLevel))
+    end
 
     if debugEnabled then
         DebugPrint("当前模式：" .. (custom and ("自定义大招=" .. custom) or "默认职业表")
@@ -1180,6 +1183,16 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
         local label = custom
         if customID then label = FetchSpellName(customID) or custom end
         info = { label = label, official = officialName, id = spellID or customID, sound = "EPIC" }
+        -- 记下真实 spellID，之后图标可以直接取这个技能的原图标
+        if spellID and type(spellID) == "number" then
+            AP_DB.spotlight.coreSpellID = spellID
+            -- 第一次施放会补上 ID；如果面板开着，顺手刷新球池里的图标
+            local panel4 = AP_Panels and AP_Panels[4]
+            if panel4 and panel4.LeftPage and panel4.LeftPage:IsVisible()
+                and AP_Spotlight and AP_Spotlight.RefreshCoreUI then
+                AP_Spotlight.RefreshCoreUI()
+            end
+        end
     else
         -- ===== 默认模式：按职业表匹配 =====
         -- 先按 SpellID 查；查不到再按官方技能名查（兼容私服改 ID）
@@ -1202,15 +1215,19 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
         return
     end
 
-    -- 触发间隔：按玩家设置，1~10 分钟
-    local cooldownMinutes = math.max(1, math.min(10, tonumber(AP_DB.spotlight.cooldownMinutes) or 1))
-    local cooldownSec = cooldownMinutes * 60
-    if lastTriggerAt > 0 and now - lastTriggerAt < cooldownSec then
-        if debugEnabled then
-            DebugPrint("触发间隔中，剩余约 "
-                .. math.ceil(cooldownSec - (now - lastTriggerAt)) .. " 秒")
+    -- 触发间隔：0 = 无限制，1~10 分钟
+    local cooldownMinutes = math.floor(tonumber(AP_DB.spotlight.cooldownMinutes) or 1)
+    if cooldownMinutes < 0 then cooldownMinutes = 0 end
+    if cooldownMinutes > 10 then cooldownMinutes = 10 end
+    if cooldownMinutes > 0 then
+        local cooldownSec = cooldownMinutes * 60
+        if lastTriggerAt > 0 and now - lastTriggerAt < cooldownSec then
+            if debugEnabled then
+                DebugPrint("触发间隔中，剩余约 "
+                    .. math.ceil(cooldownSec - (now - lastTriggerAt)) .. " 秒")
+            end
+            return
         end
-        return
     end
 
     -- 同一技能 3 秒内只弹一次；全局 0.5 秒内只弹一次（防止连按多个技能时叠在一起）
@@ -1222,18 +1239,27 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     lastTriggerAt = now
 
     -- ===== 核心技能培养的等级门槛 =====
-    if custom then
-        -- 1 级解锁喊话（用户可以关掉）
-        if coreLevel >= 5 then
-            DoSpotChat()
+    -- 40/50 特效有各自的开关，独立于 20 级高光开关
+    if custom and AP_Aura and AP_Aura.Trigger then
+        AP_Aura.Trigger(classToken, AP_DB.flavor and AP_DB.flavor.currentFaction)
+    end
+
+    -- 起手让位给正面形象时，只跳过本次高光视觉和广播；特效已经执行过了
+    if suppressedHighLight then
+        if debugEnabled then DebugPrint("本次高光让位给正面形象，特效继续") end
+        return
+    end
+
+    -- 20 级才出现高光视觉与广播
+    if custom and coreLevel < 20 then
+        if debugEnabled then
+            DebugPrint("核心技能 Lv." .. coreLevel .. "，未到 20 级，本次不弹高光")
         end
-        -- 20 级才出现高光；不到 20 级只喊话，不弹特写、不广播
-        if coreLevel < 20 then
-            if debugEnabled then
-                DebugPrint("核心技能 Lv." .. coreLevel .. "，未到 20 级，本次只喊话不弹高光")
-            end
-            return
-        end
+        return
+    end
+    if not highLightEnabled then
+        if debugEnabled then DebugPrint("高光总开关已关闭，本次只走特效，不弹高光") end
+        return
     end
 
     -- 改过名就用新名字；否则跟称谓典籍的流派称呼走
@@ -1255,12 +1281,6 @@ local previewBtn, posBtn
 local panel = AP_Panels and AP_Panels[4]
 if panel and panel.LeftPage and panel.RightPage then
     local left, right = panel.LeftPage, panel.RightPage
-
-    local title = left:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    title:SetPoint("TOPLEFT", left, "TOPLEFT", 30, -30)
-    title:SetFont(title:GetFont(), 24, "")
-    title:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    title:SetText("核心奥义")
 
     -- ==========================================
     -- 左页重做：核心技能培养
@@ -1309,61 +1329,127 @@ if panel and panel.LeftPage and panel.RightPage then
 
     local function BuildSpellBookInfoMap()
         local map = {}
-        if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
-            and C_SpellBook.GetSpellBookSkillLineInfo
-            and C_SpellBook.GetSpellBookItemInfo) then
-            return map
-        end
-        local okLines, lineCount = pcall(C_SpellBook.GetNumSpellBookSkillLines)
-        if not okLines or type(lineCount) ~= "number" then return map end
 
-        for lineIndex = 1, lineCount do
-            local okLine, lineInfo = pcall(C_SpellBook.GetSpellBookSkillLineInfo, lineIndex)
-            if okLine and type(lineInfo) == "table" then
-                local offset = lineInfo.itemIndexOffset or 0
-                local count = lineInfo.numSpellBookItems or 0
-                local isRace = type(lineInfo.name) == "string" and lineInfo.name:find("种族") ~= nil
-                for j = 1, count do
-                    local okItem, itemInfo = pcall(C_SpellBook.GetSpellBookItemInfo, offset + j, "spell")
-                    if okItem and type(itemInfo) == "table" and itemInfo.spellID then
-                        local name = FetchSpellName(itemInfo.spellID)
-                        if name and not map[name] then
-                            local passive = false
-                            local harmful = false
-                            if C_Spell and C_Spell.IsSpellPassive then
-                                local okP, p = pcall(C_Spell.IsSpellPassive, itemInfo.spellID)
-                                passive = okP and p or false
+        -- 1) 现代法术书
+        if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
+            and C_SpellBook.GetSpellBookSkillLineInfo
+            and C_SpellBook.GetSpellBookItemInfo then
+            local okLines, lineCount = pcall(C_SpellBook.GetNumSpellBookSkillLines)
+            if okLines and type(lineCount) == "number" then
+                for lineIndex = 1, lineCount do
+                    local okLine, lineInfo = pcall(C_SpellBook.GetSpellBookSkillLineInfo, lineIndex)
+                    if okLine and type(lineInfo) == "table" then
+                        local offset = lineInfo.itemIndexOffset or 0
+                        local count = lineInfo.numSpellBookItems or 0
+                        local isRace = type(lineInfo.name) == "string" and lineInfo.name:find("种族") ~= nil
+                        for j = 1, count do
+                            local okItem, itemInfo = pcall(C_SpellBook.GetSpellBookItemInfo, offset + j, "spell")
+                            if okItem and type(itemInfo) == "table" and itemInfo.spellID then
+                                local name = FetchSpellName(itemInfo.spellID)
+                                if name and not map[name] then
+                                    local passive = false
+                                    local harmful = false
+                                    if C_Spell and C_Spell.IsSpellPassive then
+                                        local okP, p = pcall(C_Spell.IsSpellPassive, itemInfo.spellID)
+                                        passive = okP and p or false
+                                    end
+                                    if C_Spell and C_Spell.IsSpellHarmful then
+                                        local okH, h = pcall(C_Spell.IsSpellHarmful, itemInfo.spellID)
+                                        harmful = okH and h or false
+                                    end
+                                    map[name] = {
+                                        spellID = itemInfo.spellID,
+                                        passive = passive,
+                                        harmful = harmful,
+                                        race = isRace,
+                                    }
+                                end
                             end
-                            if C_Spell and C_Spell.IsSpellHarmful then
-                                local okH, h = pcall(C_Spell.IsSpellHarmful, itemInfo.spellID)
-                                harmful = okH and h or false
-                            end
-                            map[name] = {
-                                spellID = itemInfo.spellID,
-                                passive = passive,
-                                harmful = harmful,
-                                race = isRace,
-                            }
                         end
                     end
                 end
             end
         end
+
+        -- 2) 旧版天赋树：补上法术书里没有的天赋技能和技能图标
+        if type(GetNumTalentTabs) == "function" and type(GetTalentInfo) == "function" then
+            local okTabs, tabCount = pcall(GetNumTalentTabs)
+            if okTabs and type(tabCount) == "number" then
+                for tab = 1, tabCount do
+                    for index = 1, 30 do
+                        local ok, name, icon = pcall(GetTalentInfo, tab, index)
+                        if not ok or type(name) ~= "string" or name == "" then break end
+                        if not map[name] then
+                            map[name] = { icon = icon, talent = true }
+                        elseif not map[name].icon and icon then
+                            map[name].icon = icon
+                        end
+                    end
+                end
+            end
+        end
+
         return map
     end
 
-    local function GetCoreSpellIcon(official)
-        local info = BuildSpellBookInfoMap()[official]
-        if info and info.spellID then
-            if C_Spell and C_Spell.GetSpellTexture then
-                local ok, tex = pcall(C_Spell.GetSpellTexture, info.spellID)
-                if ok and tex then return tex end
-            end
-            if type(GetSpellTexture) == "function" then
-                local ok, tex = pcall(GetSpellTexture, info.spellID)
-                if ok and tex then return tex end
-            end
+    local function TrySpellTexture(spellID)
+        if type(spellID) ~= "number" then return nil end
+        if C_Spell and C_Spell.GetSpellTexture then
+            local ok, tex = pcall(C_Spell.GetSpellTexture, spellID)
+            if ok and tex then return tex end
         end
+        if type(GetSpellTexture) == "function" then
+            local ok, tex = pcall(GetSpellTexture, spellID)
+            if ok and tex then return tex end
+        end
+        return nil
+    end
+
+    -- 按技能名反查 spellID：旧客户端 GetSpellInfo 的第 7 个返回值就是 ID。
+    -- 重选技能时按钮上可能没有 ID，用它补上，避免图标退化成职业图标。
+    local function TrySpellIDByName(name)
+        if type(name) ~= "string" or name == "" then return nil end
+        if type(GetSpellInfo) == "function" then
+            local ok, _, _, _, _, _, _, spellID = pcall(GetSpellInfo, name)
+            if ok and type(spellID) == "number" then return spellID end
+        end
+        return nil
+    end
+
+    -- 按技能名直接取图标：旧客户端 GetSpellTexture 允许传名字
+    local function TrySpellTextureByName(name)
+        if type(name) ~= "string" or name == "" then return nil end
+        if C_Spell and C_Spell.GetSpellTexture then
+            local ok, tex = pcall(C_Spell.GetSpellTexture, name)
+            if ok and tex then return tex end
+        end
+        if type(GetSpellTexture) == "function" then
+            local ok, tex = pcall(GetSpellTexture, name)
+            if ok and tex then return tex end
+        end
+        return nil
+    end
+
+    local function GetCoreSpellIcon(official)
+        EnsureDB()
+        -- 1) 施放时记录过 spellID 的，直接取原图标，最准
+        local tex = TrySpellTexture(AP_DB.spotlight.coreSpellID)
+        if tex then return tex end
+
+        -- 2) 刚重选、还没施放过的技能没有 ID，按名字取一次图标
+        tex = TrySpellTextureByName(official)
+        if tex then return tex end
+        tex = TrySpellTexture(TrySpellIDByName(official))
+        if tex then return tex end
+
+        -- 3) 法术书 / 旧版天赋树扫描到的技能
+        local info = BuildSpellBookInfoMap()[official]
+        if info then
+            tex = TrySpellTexture(info.spellID)
+            if tex then return tex end
+            if info.icon then return info.icon end
+        end
+
         return "Interface\\Icons\\ClassIcon_" .. tostring(CurrentClass())
     end
 
@@ -1382,6 +1468,7 @@ if panel and panel.LeftPage and panel.RightPage then
             EnsureDB()
             AP_DB.spotlight.coreSpell = term.official
             AP_DB.spotlight.customSpell = term.official
+            AP_DB.spotlight.coreSpellID = self.spellID
             AP_DB.spotlight.coreAlias = ""
             ClearAliasCache()
             RefreshCoreUI()
@@ -1389,43 +1476,99 @@ if panel and panel.LeftPage and panel.RightPage then
         chooseButtons[i] = btn
     end
 
-    -- ---------- 已选：核心技能卡片 ----------
-    local coreCard = CreateFrame("Frame", nil, coreFrame, "BackdropTemplate")
-    coreCard:SetSize(340, 100)
-    coreCard:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -58)
-    coreCard:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    coreCard:SetBackdropColor(1, 0.96, 0.85, 0.55)
-    coreCard:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
-
-    local coreIcon = coreCard:CreateTexture(nil, "ARTWORK")
-    coreIcon:SetSize(32, 32)
-    coreIcon:SetPoint("TOP", coreCard, "TOP", 0, -8)
-    coreIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-
-    local coreName = coreCard:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    coreName:SetPoint("TOP", coreCard, "TOP", 0, -44)
-    coreName:SetWidth(300)
+    -- ---------- 已选：核心技能名 + 左侧职业图标 ----------
+    -- 整行略往右挪，给左边图标留位置；图标和技能名字同高。
+    local coreName = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    coreName:SetPoint("TOP", coreFrame, "TOP", 18, -30)
+    coreName:SetWidth(260)   -- 右侧留给 × 按钮
     coreName:SetJustifyH("CENTER")
-    coreName:SetFont(coreName:GetFont(), 20, "OUTLINE")
+    coreName:SetFont(coreName:GetFont(), 28, "OUTLINE")
     coreName:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     coreName:SetText("核心技能")
 
-    local coreLevelText = coreCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    coreLevelText:SetPoint("TOP", coreCard, "TOP", 0, -70)
-    coreLevelText:SetWidth(300)
-    coreLevelText:SetJustifyH("CENTER")
-    coreLevelText:SetFont(coreLevelText:GetFont(), 13, "")
-    coreLevelText:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
-    coreLevelText:SetText("")
+    local classIcon = coreFrame:CreateTexture(nil, "OVERLAY")
+    classIcon:SetSize(26, 26)
+    classIcon:SetPoint("RIGHT", coreName, "CENTER", -80, 0)
+    classIcon:SetTexture("Interface\\Icons\\ClassIcon_" .. tostring(CurrentClass()))
 
-    local coreResetBtn = CreateFrame("Button", nil, coreCard, "UIPanelButtonTemplate")
-    coreResetBtn:SetSize(28, 24)
-    coreResetBtn:SetPoint("TOPRIGHT", coreCard, "TOPRIGHT", -8, -8)
+    -- ---------- 球池：满溢程度 = 核心等级 ----------
+    -- 旧客户端没有圆形遮罩，所以把球拆成 64 条横条：
+    -- 每条按圆的弦长算宽度，拼起来就是一个圆。
+    -- 液面以上是深色玻璃，液面以下是职业色液体。
+    local WHITE_TEX = "Interface\\Buttons\\WHITE8x8"
+    local ORB_R = 68                      -- 球的半径
+    local ORB_BARS = 64                   -- 横条数量，越多越圆滑
+    local ORB_BAR_H = (ORB_R * 2) / ORB_BARS
+    local ORB_DIAMETER = ORB_R * 2
+
+    local orbFrame = CreateFrame("Frame", nil, coreFrame)
+    orbFrame:SetSize(ORB_DIAMETER + 30, ORB_DIAMETER + 16)
+    orbFrame:SetPoint("TOP", coreFrame, "TOP", 0, -172)
+
+    -- 球底阴影：两条半透明黑条，让球看起来是“放在”书页上的
+    local orbShadowWide = orbFrame:CreateTexture(nil, "BACKGROUND")
+    orbShadowWide:SetTexture(WHITE_TEX)
+    orbShadowWide:SetSize(104, 5)
+    orbShadowWide:SetPoint("TOP", orbFrame, "TOP", 0, ORB_DIAMETER + 4)
+    orbShadowWide:SetVertexColor(0, 0, 0, 0.10)
+
+    local orbShadowDeep = orbFrame:CreateTexture(nil, "BACKGROUND")
+    orbShadowDeep:SetTexture(WHITE_TEX)
+    orbShadowDeep:SetSize(72, 8)
+    orbShadowDeep:SetPoint("TOP", orbFrame, "TOP", 0, ORB_DIAMETER + 3)
+    orbShadowDeep:SetVertexColor(0, 0, 0, 0.12)
+
+    local orbOutline, orbGlass, orbLiquid, orbShine = {}, {}, {}, {}
+    for i = 1, ORB_BARS do
+        -- cy 是这条横条中心相对球心的高度；越靠近球顶/球底，弦长越短
+        local cy = (i - 0.5) * ORB_BAR_H - ORB_R
+        local half = math.sqrt(math.max(0, ORB_R * ORB_R - cy * cy))
+        local y = -(i - 1) * ORB_BAR_H
+
+        -- 1) 外圈描边：比玻璃略宽，勾出球的轮廓
+        local outline = orbFrame:CreateTexture(nil, "BACKGROUND")
+        outline:SetTexture(WHITE_TEX)
+        outline:SetSize(half * 2 + 3, ORB_BAR_H + 0.6)
+        outline:SetPoint("TOP", orbFrame, "TOP", 0, y)
+        outline:SetVertexColor(0.34, 0.24, 0.14, 0.55)
+        orbOutline[i] = outline
+
+        -- 2) 玻璃底色：没有液体时看到的深色球体
+        local glass = orbFrame:CreateTexture(nil, "ARTWORK")
+        glass:SetTexture(WHITE_TEX)
+        glass:SetSize(math.max(1, half * 2 - 1), ORB_BAR_H + 0.6)
+        glass:SetPoint("TOP", orbFrame, "TOP", 0, y)
+        glass:SetVertexColor(0.09, 0.07, 0.05, 0.92)
+        orbGlass[i] = glass
+
+        -- 3) 液体：比玻璃再窄一点，留出玻璃壁的厚度
+        local liquid = orbFrame:CreateTexture(nil, "ARTWORK")
+        liquid:SetTexture(WHITE_TEX)
+        liquid:SetSize(math.max(1, half * 2 - 4), ORB_BAR_H + 0.6)
+        liquid:SetPoint("TOP", orbFrame, "TOP", 0, y)
+        liquid:SetVertexColor(0.55, 0.82, 1, 1)
+        liquid:SetAlpha(0)   -- 具体哪些横条显示由液面动画决定
+        orbLiquid[i] = liquid
+
+        -- 4) 左上方的一小块反光，只画球体上 1/3，增加玻璃质感
+        if i <= math.floor(ORB_BARS * 0.33) then
+            local shine = orbFrame:CreateTexture(nil, "OVERLAY")
+            shine:SetTexture(WHITE_TEX)
+            shine:SetSize(math.max(2, half * 0.45), ORB_BAR_H + 0.6)
+            shine:SetPoint("TOP", orbFrame, "TOP", -half * 0.45, y)
+            shine:SetVertexColor(1, 1, 1, 0.09)
+            orbShine[i] = shine
+        end
+    end
+
+    local coreResetBtn = CreateFrame("Button", nil, coreFrame, "UIPanelButtonTemplate")
+    coreResetBtn:SetSize(22, 20)
+    -- 和描述框右侧的「改」排在同一条竖线上（右边缘都贴 x = 370）
+    coreResetBtn:SetPoint("TOPRIGHT", coreFrame, "TOPRIGHT", -30, -38)
+    coreResetBtn:SetFrameLevel(coreFrame:GetFrameLevel() + 8)
     coreResetBtn:SetText("×")
+    local coreResetText = coreResetBtn:GetFontString()
+    if coreResetText then coreResetText:SetFont(coreResetText:GetFont(), 10, "") end
     coreResetBtn:SetScript("OnClick", function()
         local official = GetCoreSpellName()
         if official then
@@ -1433,77 +1576,249 @@ if panel and panel.LeftPage and panel.RightPage then
         end
     end)
 
-    -- ---------- 核心描述（左页，等级解锁上方） ----------
-    local descLabel = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    descLabel:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -170)
-    descLabel:SetFont(descLabel:GetFont(), 14, "")
-    descLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    descLabel:SetText("核心描述")
+    -- 核心等级：从原卡片里挪到球池下方
+    local coreLevelText = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    coreLevelText:SetPoint("TOP", coreFrame, "TOP", 0, -318)
+    coreLevelText:SetWidth(320)
+    coreLevelText:SetJustifyH("CENTER")
+    coreLevelText:SetFont(coreLevelText:GetFont(), 13, "")
+    coreLevelText:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+    coreLevelText:SetText("")
 
-    local coreDescInput = CreateFrame("EditBox", nil, coreFrame, "BackdropTemplate")
-    coreDescInput:SetSize(340, 26)
-    coreDescInput:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -190)
+    -- ---------- 核心描述：普通文本 + 小方块编辑 ----------
+    -- 平时就是书页上的一段普通文字，不画输入框；
+    -- 右边有个小方块「改」，点一下才出现编辑框，回车或失焦保存。
+    local descCard = CreateFrame("Frame", nil, coreFrame)
+    descCard:SetSize(340, 64)
+    descCard:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -70)
+    descCard.currentDesc = ""
+
+    local descLabel = descCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    descLabel:SetPoint("TOPLEFT", descCard, "TOPLEFT", 0, 0)
+    descLabel:SetWidth(310)
+    descLabel:SetHeight(62)
+    descLabel:SetJustifyH("LEFT")
+    descLabel:SetSpacing(4)
+    descLabel:SetFont(descLabel:GetFont(), 13, "")
+    descLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    descLabel:SetText("")
+
+    local descEditBtn = CreateFrame("Button", nil, descCard, "UIPanelButtonTemplate")
+    descEditBtn:SetSize(22, 20)
+    descEditBtn:SetPoint("TOPRIGHT", descCard, "TOPRIGHT", 0, -2)
+    descEditBtn:SetText("改")
+    local descEditText = descEditBtn:GetFontString()
+    if descEditText then descEditText:SetFont(descEditText:GetFont(), 10, "") end
+
+    local coreDescInput = CreateFrame("EditBox", nil, descCard, "BackdropTemplate")
+    coreDescInput:SetSize(340, 64)
+    coreDescInput:SetPoint("TOPLEFT", descCard, "TOPLEFT", 0, 0)
     coreDescInput:SetFontObject("GameFontNormalSmall")
     coreDescInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    coreDescInput:SetTextInsets(6, 6, 0, 0)
+    coreDescInput:SetTextInsets(5, 5, 4, 4)
     coreDescInput:SetAutoFocus(false)
+    coreDescInput:SetMultiLine(true)
     coreDescInput:SetMaxLetters(80)
     coreDescInput:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 1,
     })
-    coreDescInput:SetBackdropColor(1, 0.96, 0.85, 0.55)
-    coreDescInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
-    coreDescInput:SetText(AP_DB.spotlight.coreDesc or "")
+    coreDescInput:SetBackdropColor(1, 0.96, 0.85, 0.70)
+    coreDescInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.70)
+    coreDescInput:Hide()
+
+    -- 编辑中标记：防止回车和失焦各保存一次
+    local descEditing = false
+
+    local function StopEditDesc()
+        descEditing = false
+        coreDescInput:Hide()
+        descLabel:Show()
+        descEditBtn:Show()
+    end
+
     local function SaveCoreDesc()
+        if not descEditing then return end
+        descEditing = false
         local value = Trim(Sanitize(coreDescInput:GetText() or "", 80))
         AP_DB.spotlight.coreDesc = value
-        coreDescInput:SetText(value)
+        StopEditDesc()
+        if RefreshCoreUI then RefreshCoreUI() end
     end
+
+    descEditBtn:SetScript("OnClick", function()
+        descEditing = true
+        descEditBtn:Hide()
+        descLabel:Hide()
+        coreDescInput:Show()
+        -- 用当前实际描述进入编辑；没有描述就从空框开始
+        coreDescInput:SetText(descCard.currentDesc or "")
+        coreDescInput:SetCursorPosition(0)
+        coreDescInput:SetFocus()
+        coreDescInput:HighlightText()
+    end)
+
     coreDescInput:SetScript("OnEnterPressed", function(self)
         SaveCoreDesc()
         self:ClearFocus()
     end)
-    coreDescInput:SetScript("OnEditFocusLost", SaveCoreDesc)
+    coreDescInput:SetScript("OnEscapePressed", function(self)
+        StopEditDesc()
+        self:ClearFocus()
+    end)
+    coreDescInput:SetScript("OnEditFocusLost", function()
+        if descEditing then SaveCoreDesc() end
+    end)
 
     -- ---------- 左页：等级解锁功能（只读） ----------
     local unlockTitle = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    unlockTitle:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -232)
-    unlockTitle:SetFont(unlockTitle:GetFont(), 14, "")
-    unlockTitle:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    unlockTitle:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -344)
+    unlockTitle:SetFont(unlockTitle:GetFont(), 13, "")
+    unlockTitle:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
     unlockTitle:SetText("等级解锁")
 
     local unlockText = coreFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    unlockText:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -256)
+    unlockText:SetPoint("TOPLEFT", coreFrame, "TOPLEFT", 30, -366)
     unlockText:SetWidth(340)
     unlockText:SetJustifyH("LEFT")
-    unlockText:SetSpacing(8)
-    unlockText:SetFont(unlockText:GetFont(), 14, "")
+    unlockText:SetSpacing(5)
+    unlockText:SetFont(unlockText:GetFont(), 13, "")
     unlockText:SetText("")
+
+    -- ---------- 球池动态 ----------
+    -- 液体高度用 orbFill（0~1）表示：0 级留一点底液，50 级接近满溢。
+    -- 液面、气泡和图标都在 OnUpdate 里缓缓动，平时几乎不耗性能。
+    local orbFill = 0.05
+    local orbTargetFill = 0.05
+    local orbElapsed = 0
+    local orbAcc = 0
+
+    -- 取液体颜色：优先职业色，客户端没给职业色时退回流派主题色
+    local function GetCoreThemeColor()
+        local classToken = CurrentClass()
+        local classColor = classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+        if classColor then
+            return classColor.r, classColor.g, classColor.b
+        end
+        local factionID = AP_DB.flavor and AP_DB.flavor.currentFaction
+        if AP_Aura and AP_Aura.GetTheme then
+            local theme = AP_Aura.GetTheme(classToken, factionID)
+            if theme and theme.color then
+                return theme.color[1], theme.color[2], theme.color[3]
+            end
+        end
+        return AP_Theme.accent[1], AP_Theme.accent[2], AP_Theme.accent[3]
+    end
+
+    -- 设置等级（0~50）和液体颜色；液面会自己慢慢涨过去
+    local function SetOrbLevel(level, r, g, b)
+        level = math.max(0, math.min(50, tonumber(level) or 0))
+        orbTargetFill = 0.05 + (level / 50) * 0.92
+        if r then
+            for i = 1, ORB_BARS do
+                -- 液体越往下越暗，模拟球体底部的阴影，立体感更强
+                local shade = 0.72 + (1 - i / ORB_BARS) * 0.30
+                orbLiquid[i]:SetVertexColor(r * shade, g * shade, b * shade, 1)
+                -- 外圈用职业色的暗调，像玻璃壁映出的颜色
+                orbOutline[i]:SetVertexColor(r * 0.30 + 0.10, g * 0.30 + 0.07, b * 0.30 + 0.05, 0.62)
+            end
+        end
+    end
+
+    -- 气泡：几颗小白点，在液体里从球底往上浮
+    local orbBubbles = {}
+    for i = 1, 6 do
+        local tex = orbFrame:CreateTexture(nil, "OVERLAY")
+        tex:SetTexture(WHITE_TEX)
+        tex:SetSize(4, 4)
+        tex:SetVertexColor(1, 1, 1, 0.30)
+        orbBubbles[i] = {
+            tex = tex,
+            pos = math.random(),
+            side = math.random() * 2 - 1,
+            speed = 0.12 + math.random() * 0.10,
+        }
+    end
+
+    orbFrame:SetScript("OnUpdate", function(self, dt)
+        -- 每秒更新约 20 次就够了，既顺滑又不浪费性能
+        orbAcc = orbAcc + dt
+        if orbAcc < 0.05 then return end
+        local step = orbAcc
+        orbAcc = 0
+
+        -- 液面平滑追上目标高度：升级时会看到液体缓缓上涨
+        if math.abs(orbTargetFill - orbFill) > 0.0005 then
+            orbFill = orbFill + (orbTargetFill - orbFill) * math.min(1, step * 3)
+        end
+
+        orbElapsed = orbElapsed + step
+        local fillPx = orbFill * ORB_DIAMETER
+        local liquidTop = ORB_R - fillPx        -- 液面相对球心的 y（向下为正）
+        local sway = math.sin(orbElapsed * 1.8) * 2.2
+
+        for i = 1, ORB_BARS do
+            local cy = (i - 0.5) * ORB_BAR_H - ORB_R
+            local barBottom = cy + ORB_BAR_H / 2
+            -- 每条横条按自己的相位轻微起伏，液面就不是一条死板的直线
+            local wave = math.sin(orbElapsed * 2.6 + i * 0.65) * 1.8
+            local surface = liquidTop + sway + wave
+            local coverage = (barBottom - surface) / ORB_BAR_H
+            coverage = math.max(0, math.min(1, coverage))
+            orbLiquid[i]:SetAlpha(coverage * 0.88)
+        end
+
+        -- 气泡只在液体够多时出现
+        local showBubbles = fillPx > ORB_BAR_H * 2
+        for i = 1, #orbBubbles do
+            local bubble = orbBubbles[i]
+            if not showBubbles then
+                bubble.tex:Hide()
+            else
+                bubble.tex:Show()
+                bubble.pos = bubble.pos + bubble.speed * step
+                if bubble.pos > 1 then
+                    bubble.pos = 0
+                    bubble.side = math.random() * 2 - 1
+                end
+                local yOff = ORB_R - bubble.pos * fillPx
+                local half = math.sqrt(math.max(0, ORB_R * ORB_R - yOff * yOff))
+                bubble.tex:SetPoint("CENTER", orbFrame, "TOP",
+                    bubble.side * half * 0.62, -(ORB_R + yOff))
+                bubble.tex:SetAlpha(math.min(1, math.sin(bubble.pos * math.pi)) * 0.35)
+            end
+        end
+    end)
 
     -- ---------- 右页：等级操作 + 两个总设置 ----------
     local function EnableText()
-        return AP_DB.spotlight.enabled and "开启" or "关闭"
+        return AP_DB.spotlight.enabled and "已开启" or "已关闭"
     end
     local function ScopeText()
         return AP_DB.spotlight.groupOnly and "仅组队 / 团队" or "所有人"
-    end
-    local function ChatToggleText()
-        return AP_DB.spotlight.coreChatEnabled and "开启" or "关闭"
     end
 
     local soundNames = { "随机", "sound1.ogg", "sound2.ogg", "sound3.ogg" }
     local function SoundButtonText()
         local index = AP_DB.spotlight.soundIndex or 0
+        if index == -1 then return "已关闭" end
         return soundNames[index + 1] or "随机"
     end
     local function CycleSound()
         if GetCoreLevel() < 30 then return end
-        local index = (AP_DB.spotlight.soundIndex or 0) + 1
-        if index > #CUSTOM_SOUNDS then index = 0 end
+        local index = AP_DB.spotlight.soundIndex or 0
+        if index == 3 then
+            index = -1
+        elseif index == -1 then
+            index = 0
+        else
+            index = index + 1
+        end
         AP_DB.spotlight.soundIndex = index
-        if AP_DB.spotlight.sound then PlaySpotSound("EPIC") end
+        if index ~= -1 and AP_DB.spotlight.sound then
+            PlaySpotSound("EPIC")
+        end
     end
 
     -- 左标签 + 右值，点整行切换；值文字用暗金色提示可点
@@ -1530,55 +1845,37 @@ if panel and panel.LeftPage and panel.RightPage then
         end)
         btn:SetScript("OnEnter", function() valueFS:SetTextColor(0.85, 0.42, 0.10) end)
         btn:SetScript("OnLeave", function() valueFS:SetTextColor(0.50, 0.30, 0.10) end)
+        btn.labelFS = labelFS
+        btn.valueFS = valueFS
         return valueFS, btn
     end
 
-    local chatValue, chatRowBtn = MakeToggleRow(right, "5 级 · 施放核心技能时喊话", -126,
-        ChatToggleText, function()
-            AP_DB.spotlight.coreChatEnabled = not AP_DB.spotlight.coreChatEnabled
-        end)
+    -- 整行显隐：未解锁的等级功能在右页完全不显示
+    local function SetRowShown(valueFS, btn, shown)
+        if btn and btn.labelFS then
+            if shown then btn.labelFS:Show() else btn.labelFS:Hide() end
+        end
+        if valueFS then
+            if shown then valueFS:Show() else valueFS:Hide() end
+        end
+        if btn then
+            if shown then btn:Show() else btn:Hide() end
+        end
+    end
 
     -- 广播默认开启
     if AP_DB.spotlight.broadcast == nil then AP_DB.spotlight.broadcast = true end
 
-    local chatInput = CreateFrame("EditBox", nil, right, "BackdropTemplate")
-    chatInput:SetSize(198, 28)
-    chatInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -148)
-    chatInput:SetFontObject("GameFontNormal")
-    chatInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
-    chatInput:SetTextInsets(6, 6, 0, 0)
-    chatInput:SetAutoFocus(false)
-    chatInput:SetMaxLetters(120)
-    chatInput:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    chatInput:SetBackdropColor(1, 0.96, 0.85, 0.55)
-    chatInput:SetBackdropBorderColor(0.30, 0.20, 0.10, 0.8)
-    chatInput:SetText(AP_DB.spotlight.chatText or "")
-
-    local function SaveChatText()
-        local value = Trim(Sanitize(chatInput:GetText() or "", 120))
-        AP_DB.spotlight.chatText = value
-        chatInput:SetText(value)
-    end
-    chatInput:SetScript("OnEnterPressed", function(self)
-        SaveChatText()
-        self:ClearFocus()
-    end)
-    chatInput:SetScript("OnEditFocusLost", SaveChatText)
-
     -- ---------- 15 级：改名 ----------
     local aliasLabel = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    aliasLabel:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -206)
+    aliasLabel:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -94)
     aliasLabel:SetFont(aliasLabel:GetFont(), 14, "")
     aliasLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     aliasLabel:SetText("15 级 · 修改核心技能名字")
 
     local aliasInput = CreateFrame("EditBox", nil, right, "BackdropTemplate")
-    aliasInput:SetSize(240, 28)
-    aliasInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -228)
+    aliasInput:SetSize(300, 28)
+    aliasInput:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -116)
     aliasInput:SetFontObject("GameFontNormal")
     aliasInput:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
     aliasInput:SetTextInsets(6, 6, 0, 0)
@@ -1599,6 +1896,7 @@ if panel and panel.LeftPage and panel.RightPage then
         local old = AP_DB.spotlight.coreAlias or ""
         AP_DB.spotlight.coreAlias = value
         aliasInput:SetText(value)
+        aliasInput:SetCursorPosition(0)   -- 失焦后从开头显示，不要停在末尾
         if value ~= old then
             print("|cffffd700[AP]|r 核心技能名字已保存：" .. (value ~= "" and value or "（已清除）"))
         end
@@ -1620,16 +1918,14 @@ if panel and panel.LeftPage and panel.RightPage then
     aliasSavedText:SetText("")
     aliasInput:SetScript("OnEditFocusGained", function() aliasSavedText:SetText("") end)
 
-    -- ---------- 20 级：高光状态 ----------
-    local highLightStatus = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    highLightStatus:SetPoint("TOPLEFT", right, "TOPLEFT", 30, -272)
-    highLightStatus:SetWidth(340)
-    highLightStatus:SetJustifyH("LEFT")
-    highLightStatus:SetFont(highLightStatus:GetFont(), 13, "")
-    highLightStatus:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+    -- ---------- 20 级：高光时刻总开关 ----------
+    local highLightValue, highLightRowBtn = MakeToggleRow(right, "20 级 · 高光时刻", -166,
+        EnableText, function()
+            AP_DB.spotlight.enabled = not AP_DB.spotlight.enabled
+        end)
 
     -- ---------- 30 级：本地音效 ----------
-    local soundValue, soundRowBtn = MakeToggleRow(right, "30 级 · 本地音效", -308,
+    local soundValue, soundRowBtn = MakeToggleRow(right, "30 级 · 本地音效", -200,
         SoundButtonText, CycleSound)
     soundRowBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -1641,23 +1937,49 @@ if panel and panel.LeftPage and panel.RightPage then
     end)
     soundRowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- ---------- 触发范围 / 高光总开关 ----------
+    -- ---------- 40 级：流派施放特效 ----------
+    local function AuraText()
+        if not (AP_Aura and AP_Aura.IsUnlocked and AP_Aura.IsUnlocked()) then
+            return "未解锁"
+        end
+        return (AP_Aura.IsEnabled and AP_Aura.IsEnabled()) and "已开启" or "已关闭"
+    end
+
+    local auraValue, auraRowBtn = MakeToggleRow(right, "40 级 · 施放特效", -232,
+        AuraText, function()
+            if AP_Aura and AP_Aura.Toggle then AP_Aura.Toggle() end
+        end)
+
+    local function HeadAuraText()
+        if not (AP_HeadAura and AP_HeadAura.IsUnlocked and AP_HeadAura.IsUnlocked()) then
+            return "未解锁"
+        end
+        return (AP_HeadAura.IsEnabled and AP_HeadAura.IsEnabled()) and "已开启" or "已关闭"
+    end
+
+    local headAuraValue, headAuraRowBtn = MakeToggleRow(right, "50 级 · 头顶特效", -264,
+        HeadAuraText, function()
+            if AP_HeadAura and AP_HeadAura.Toggle then AP_HeadAura.Toggle() end
+        end)
+
+    -- ---------- 触发范围 / 释放间隔 ----------
     local scopeValue, scopeRowBtn = MakeToggleRow(right, "触发范围", -30, ScopeText, function()
         AP_DB.spotlight.groupOnly = not AP_DB.spotlight.groupOnly
     end)
-    local enableValue, enableRowBtn = MakeToggleRow(right, "高光系统", -62, EnableText, function()
-        AP_DB.spotlight.enabled = not AP_DB.spotlight.enabled
-    end)
 
-    local cooldownValue, cooldownRowBtn = MakeToggleRow(right, "释放间距", -94,
-        function()
-            return (AP_DB.spotlight.cooldownMinutes or 1) .. " 分钟"
-        end,
-        function()
-            local value = (AP_DB.spotlight.cooldownMinutes or 1) + 1
-            if value > 10 then value = 1 end
-            AP_DB.spotlight.cooldownMinutes = value
-        end)
+    local function CooldownText()
+        local minutes = AP_DB.spotlight.cooldownMinutes or 1
+        if minutes <= 0 then return "无限制" end
+        return minutes .. " 分钟"
+    end
+    local function CycleCooldown()
+        local value = (AP_DB.spotlight.cooldownMinutes or 1) + 1
+        if value > 10 then value = 0 end
+        AP_DB.spotlight.cooldownMinutes = value
+    end
+
+    local cooldownValue, cooldownRowBtn = MakeToggleRow(right, "释放间隔", -62,
+        CooldownText, CycleCooldown)
 
     -- ---------- 视图刷新 ----------
     local function FillChooseList()
@@ -1671,7 +1993,7 @@ if panel and panel.LeftPage and panel.RightPage then
                 if term.category == "技能" and official and not seen[official] then
                     local skip = STARTER_SPELLS[official] and true or false
                     local info = spellInfo[official]
-                    if not skip and info then
+                    if not skip and info and info.spellID then
                         -- 被动 / buff（非伤害）和种族技能不进候选
                         skip = info.passive or info.race or (not info.harmful)
                     end
@@ -1685,7 +2007,10 @@ if panel and panel.LeftPage and panel.RightPage then
         for i, btn in ipairs(chooseButtons) do
             local term = list[i]
             if term then
+                local info = spellInfo[term.official]
                 btn.term = term
+                -- 扫描不到 ID 时按技能名再查一次，保证选完就能显示技能原图标
+                btn.spellID = (info and info.spellID) or TrySpellIDByName(term.official)
                 btn:SetText((term.alias or term.official) .. "（" .. term.official .. "）")
                 btn:Show()
             else
@@ -1703,7 +2028,8 @@ if panel and panel.LeftPage and panel.RightPage then
         if not official then
             chooseFrame:Show()
             coreFrame:Hide()
-            descLabel:Hide()
+            descCard:Hide()
+            descEditing = false
             coreDescInput:Hide()
             if previewBtn then previewBtn:Hide() end
             if posBtn then posBtn:Hide() end
@@ -1713,8 +2039,7 @@ if panel and panel.LeftPage and panel.RightPage then
 
         chooseFrame:Hide()
         coreFrame:Show()
-        descLabel:Show()
-        coreDescInput:Show()
+        descCard:Show()
         if previewBtn then previewBtn:Show() end
         if posBtn then posBtn:Show() end
 
@@ -1731,50 +2056,97 @@ if panel and panel.LeftPage and panel.RightPage then
             displayName = AP_DB.spotlight.coreAlias
         end
         coreName:SetText("【" .. displayName .. "】")
-        coreLevelText:SetText("核心 Lv." .. level .. " / 30    熟练度 " .. points .. "/" .. maxProf)
-        coreIcon:SetTexture(GetCoreSpellIcon(official))
-        coreDescInput:SetText(AP_DB.spotlight.coreDesc or "")
+        coreLevelText:SetText("核心 Lv." .. level .. " / 50    熟练度 " .. points .. "/" .. maxProf)
+        -- 球池：等级决定液面高度，职业/流派色决定液体颜色
+        local orbColorR, orbColorG, orbColorB = GetCoreThemeColor()
+        SetOrbLevel(level, orbColorR, orbColorG, orbColorB)
+
+        -- 描述没填过时，默认用当前流派「称谓典籍」里这个技能的新介绍（note）
+        local descText = AP_DB.spotlight.coreDesc or ""
+        if descText == "" and AP_FlavorManager and AP_FlavorManager.GetTermList then
+            local factionID = AP_DB.flavor and AP_DB.flavor.currentFaction
+            local terms = AP_FlavorManager.GetTermList(CurrentClass(), factionID)
+            if terms then
+                for _, term in ipairs(terms) do
+                    if term.official == official and term.note and term.note ~= "" then
+                        descText = Sanitize(term.note, 80)
+                        break
+                    end
+                end
+            end
+        end
+        -- 编辑中不覆盖玩家没打完的字；非编辑时显示普通文本
+        descCard.currentDesc = descText
+        if not descEditing then
+            coreDescInput:Hide()
+            descLabel:Show()
+            descEditBtn:Show()
+            if descText == "" then
+                descLabel:SetText("还没有对当前核心技能进行描述。")
+                descLabel:SetTextColor(AP_Theme.inkSoft[1], AP_Theme.inkSoft[2], AP_Theme.inkSoft[3])
+            else
+                descLabel:SetText(descText)
+                descLabel:SetTextColor(AP_Theme.ink[1], AP_Theme.ink[2], AP_Theme.ink[3])
+            end
+        end
+
+        -- 职业图标跟着当前职业走，尺寸跟随技能名文字高度，贴着文字左边缘
+        classIcon:SetTexture("Interface\\Icons\\ClassIcon_" .. tostring(CurrentClass()))
+        local nameWidth = coreName:GetStringWidth() or 120
+        local nameHeight = coreName:GetStringHeight() or 28
+        classIcon:SetSize(nameHeight, nameHeight)
+        classIcon:SetPoint("RIGHT", coreName, "CENTER", -nameWidth / 2 - 8, 0)
 
         local function LevelState(n)
             if level >= n then return "|cff3f6b2e已解锁|r" end
             return "|cff8c261a还需 " .. (n - level) .. " 级|r"
         end
         unlockText:SetText(
-            "5 级 · 施放核心技能时喊话    " .. LevelState(5) .. "\n" ..
             "15 级 · 修改核心技能名字    " .. LevelState(15) .. "\n" ..
             "20 级 · 高光时刻    " .. LevelState(20) .. "\n" ..
-            "30 级 · 本地音效    " .. LevelState(30)
+            "30 级 · 本地音效    " .. LevelState(30) .. "\n" ..
+            "40 级 · 施放特效    " .. LevelState(40) .. "\n" ..
+            "50 级 · 头顶特效    " .. LevelState(50)
         )
 
-        chatInput:SetEnabled(level >= 5)
-        chatRowBtn:SetEnabled(level >= 5)
-        chatValue:SetText(ChatToggleText())
-
-        aliasInput:SetEnabled(level >= 15)
-        aliasLabel:SetText(level >= 15 and "15 级 · 修改核心技能名字"
-            or ("15 级 · 修改核心技能名字（还需 " .. (15 - level) .. " 级）"))
-        aliasInput:SetText(level >= 15 and (AP_DB.spotlight.coreAlias or "") or "")
-        if level >= 15 and (AP_DB.spotlight.coreAlias or "") ~= "" then
-            aliasSavedText:SetText("已保存")
+        local showAlias = level >= 15
+        if showAlias then
+            aliasLabel:Show()
+            aliasInput:Show()
+            aliasSavedText:Show()
+            aliasLabel:SetText("15 级 · 修改核心技能名字")
+            if not aliasInput:HasFocus() then
+                aliasInput:SetText(AP_DB.spotlight.coreAlias or "")
+                aliasInput:SetCursorPosition(0)
+            end
+            if (AP_DB.spotlight.coreAlias or "") ~= "" then
+                aliasSavedText:SetText("已保存")
+            else
+                aliasSavedText:SetText("")
+            end
         else
-            aliasSavedText:SetText("")
+            aliasLabel:Hide()
+            aliasInput:Hide()
+            aliasSavedText:Hide()
         end
-        enableValue:SetText(EnableText())
         scopeValue:SetText(ScopeText())
-        cooldownValue:SetText((AP_DB.spotlight.cooldownMinutes or 1) .. " 分钟")
+        cooldownValue:SetText(CooldownText())
 
-        if level >= 20 then
-            highLightStatus:SetText("|cff3f6b2e20 级 · 高光时刻：已解锁|r")
-        else
-            highLightStatus:SetText("|cff8c261a20 级 · 高光时刻：还需 " .. (20 - level) .. " 级|r")
-        end
+        local showHighLight = level >= 20
+        SetRowShown(highLightValue, highLightRowBtn, showHighLight)
+        if showHighLight then highLightValue:SetText(EnableText()) end
 
-        soundRowBtn:SetEnabled(level >= 30)
-        if level >= 30 then
-            soundValue:SetText(SoundButtonText())
-        else
-            soundValue:SetText("未解锁")
-        end
+        local showSound = level >= 30
+        SetRowShown(soundValue, soundRowBtn, showSound)
+        if showSound then soundValue:SetText(SoundButtonText()) end
+
+        local showAura = level >= 40
+        SetRowShown(auraValue, auraRowBtn, showAura)
+        if showAura then auraValue:SetText(AuraText()) end
+
+        local showHead = level >= 50
+        SetRowShown(headAuraValue, headAuraRowBtn, showHead)
+        if showHead then headAuraValue:SetText(HeadAuraText()) end
     end
 
     -- 重练：清空该技能的熟练度和核心技能选择
@@ -1791,6 +2163,8 @@ if panel and panel.LeftPage and panel.RightPage then
             AP_DB.spotlight.coreSpell = ""
             AP_DB.spotlight.customSpell = ""
             AP_DB.spotlight.coreAlias = ""
+            -- 旧技能的图标 ID 也一起清掉，免得重选后图标错位
+            AP_DB.spotlight.coreSpellID = nil
             ClearAliasCache()
             RefreshCoreUI()
         end,
@@ -1805,7 +2179,7 @@ if panel and panel.LeftPage and panel.RightPage then
         left:HookScript("OnShow", function() RefreshCoreUI() end)
     end
     RefreshCoreUI()
-    -- 试放按钮：不用真进战斗，点一下就能看特效（不会喊话）
+    -- 试放按钮：不用真进战斗，点一下就能看特效
     -- 连续试放的计数：2 秒内连续点，第 2 次开始用组队槽位，第 5 次触发彩蛋
     local previewCount = 0
     local lastPreviewAt = 0
@@ -1817,6 +2191,12 @@ if panel and panel.LeftPage and panel.RightPage then
     previewBtn:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 30, 20)
     previewBtn:SetText("试放我的高光")
     previewBtn:SetScript("OnClick", function()
+        local level = GetCoreLevel()
+        if level < 20 then
+            print("|cffffd700[AP]|r 核心技能到 20 级才能试放高光。")
+            return
+        end
+
         local classToken = CurrentClass()
         local custom = GetCustomSpell()
         local label, official, previewID
@@ -1834,43 +2214,37 @@ if panel and panel.LeftPage and panel.RightPage then
         end
         -- 试放同样走核心技能改名的优先级
         local displayLabel = GetCoreDisplayLabel(official, label)
-        local now = GetTime()
-        if now - lastPreviewAt > 2 then
-            previewCount = 0
-            eggShown = false
-        end
-        lastPreviewAt = now
-        if previewCount < 5 then previewCount = previewCount + 1 end
 
-        if previewCount == 5 then
-            if not eggShown then
-                eggShown = true
-                -- 第 5 个放中央顶部，内容换成阿尔萨斯彩蛋
-                ShowRemoteHighlight("阿尔萨斯", "去死吧，父亲", "DEATHKNIGHT", nil, 5)
-                PlaySpotSound("EPIC", true)
-            end
-            return
+        -- 书本界面会挡住特效，先收起；整个序列结束后再恢复
+        if AP_MainFrame then AP_MainFrame:Hide() end
+
+        -- 40 级才试放施放特效；respectLock 保证 50 级以下不提前出现头顶特效
+        if level >= 40 and AP_Aura and AP_Aura.Trigger then
+            AP_Aura.Trigger(classToken, AP_DB.flavor and AP_DB.flavor.currentFaction, true, 6, true)
         end
 
-        if previewCount == 1 then
-            ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
-                previewID and PORTRAIT_IMAGES[previewID], true)
-            -- 第一次试放带上喊话
-            DoSpotChat()
-        else
-            -- 第 2～4 个队友按自己位置避让后的顺序摆位
-            local order = GetRemoteSlotOrder()
-            local slotIndex = order[previewCount - 1] or 5
-            ShowRemoteHighlight("试放队友 " .. previewCount, displayLabel, classToken, nil, slotIndex)
-            -- 音效错开，避免叠在一起
-            local delay = math.max(0, 0.18 - (now - lastPreviewSoundAt))
-            lastPreviewSoundAt = now + delay
-            if delay > 0 then
-                After(delay, function() PlaySpotSound("EPIC", true) end)
-            else
+        -- 20 级：自己 + 四名队友槽位 + 彩蛋（音效由 PlaySpotSound 按 30 级过滤）
+        ShowHighlight(GetDisplayName(), displayLabel, classToken, "player", "EPIC",
+            previewID and PORTRAIT_IMAGES[previewID], true)
+
+        local order = GetRemoteSlotOrder()
+        local function ShowTeammate(n, delay)
+            After(delay, function()
+                local idx = order[n - 1] or 5
+                ShowRemoteHighlight("试放队友 " .. n, displayLabel, classToken, nil, idx)
                 PlaySpotSound("EPIC", true)
-            end
+            end)
         end
+        ShowTeammate(2, 0.9)
+        ShowTeammate(3, 1.8)
+        ShowTeammate(4, 2.7)
+        After(3.6, function()
+            ShowRemoteHighlight("阿尔萨斯", "去死吧，父亲", "DEATHKNIGHT", nil, 5)
+            PlaySpotSound("EPIC", true)
+        end)
+        After(6.5, function()
+            if AP_MainFrame then AP_MainFrame:Show() end
+        end)
     end)
     -- 放在左页最上层，避免被核心卡片/选择列表挡住点击
     previewBtn:SetFrameLevel(left:GetFrameLevel() + 30)

@@ -1269,4 +1269,43 @@ AP_Terms["SHAMAN"] = {
         { category = "技能", official = "元素掌握", alias = "环之掌握" },
         { category = "技能", official = "净化", alias = "世界净化" },
     },
+
+    -- 牛头人：灵魂行者
+    ["SpiritWalker"] = {
+        { category = "技能", official = "闪电箭", alias = "祖灵之箭" },
+        { category = "技能", official = "治疗波", alias = "先祖之息" },
+        { category = "技能", official = "治疗链", alias = "灵魂之链" },
+        { category = "技能", official = "幽灵狼", alias = "魂狼" },
+        { category = "技能", official = "野性狼魂", alias = "先祖狼魂" },
+        { category = "技能", official = "复生", alias = "唤魂" },
+        { category = "技能", official = "视界术", alias = "灵魂远眺" },
+        { category = "技能", official = "元素掌握", alias = "祖灵掌握" },
+        { category = "图腾", official = "治疗之泉图腾", alias = "祖灵之泉图腾" },
+    },
+
+    -- 兽人：萨满祭司
+    ["ShamanPriest"] = {
+        { category = "技能", official = "闪电箭", alias = "部族雷霆" },
+        { category = "技能", official = "治疗波", alias = "先祖之愈" },
+        { category = "技能", official = "复生", alias = "先祖归来" },
+        { category = "技能", official = "嗜血", alias = "战鼓" },
+        { category = "技能", official = "英勇", alias = "战歌" },
+        { category = "技能", official = "元素掌握", alias = "祭司掌握" },
+        { category = "天赋", official = "萨满之怒", alias = "祭司之怒" },
+        { category = "图腾", official = "风怒图腾", alias = "战风图腾" },
+        { category = "图腾", official = "大地之力图腾", alias = "部族之力图腾" },
+    },
+
+    -- 巨魔：巫医
+    ["WitchDoctor"] = {
+        { category = "技能", official = "闪电箭", alias = "妖雷" },
+        { category = "技能", official = "妖术", alias = "巫毒变形" },
+        { category = "技能", official = "治疗波", alias = "巫药之愈" },
+        { category = "技能", official = "烈焰震击", alias = "灼魂" },
+        { category = "技能", official = "冰霜震击", alias = "寒蛊" },
+        { category = "技能", official = "复生", alias = "还魂" },
+        { category = "技能", official = "视界术", alias = "窥魂术" },
+        { category = "图腾", official = "清毒图腾", alias = "解毒巫术" },
+        { category = "图腾", official = "灼热图腾", alias = "火蛊图腾" },
+    },
 }
